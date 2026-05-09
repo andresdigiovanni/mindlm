@@ -1,7 +1,7 @@
 from mindlm.utils import sum_2
 
 
-def main() -> None:
+def main() -> None:  # pragma: no cover
     print("Hello from mindlm!")
     print("Sum:", sum_2(3, 5))
 

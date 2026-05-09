@@ -5,7 +5,23 @@ description = "A Python project with cookiecutter structure"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "mcp>=1.3",
+    "qdrant-client[fastembed]>=1.12",
+    "sentence-transformers>=3.3",
+    "torch>=2.3",
+    "httpx>=0.28",
+    "pymupdf>=1.24",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.3",
+    "surya-ocr>=0.7",
+]
 authors = [
     {name = "Andres Di Giovanni", email = "andresdigiovanni@gmail.com"}
 ]
@@ -23,10 +39,13 @@ dev = [
     "commitizen>=4.9.1",
     "ruff>=0.6.9",
     "mypy>=1.13.0",
+    "pytest-asyncio>=0.24",
 ]
 
 [project.scripts]
 mindlm = "mindlm.main:main"
+mindlm-api = "mindlm.api.run:main"
+mindlm-mcp = "mindlm.mcp.run:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -53,6 +72,10 @@ exclude_lines = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+asyncio_mode = "auto"
+markers = [
+    "integration: requires live Docker services (deselect with -m 'not integration')",
+]
 
 [tool.ruff]
 target-version = "py311"
@@ -97,6 +120,19 @@ line-ending = "auto"
 
 [tool.ruff.lint.isort]
 known-first-party = ["mindlm"]
+
+[[tool.mypy.overrides]]
+module = [
+    "sentence_transformers.*",
+    "fastembed.*",
+    "surya.*",
+    "fitz.*",
+    "docx.*",
+    "pptx.*",
+    "bs4.*",
+    "yaml.*",
+]
+ignore_missing_imports = true
 
 [tool.mypy]
 python_version = "3.11"

@@ -1,0 +1,35 @@
+app:
+  name: test
+llm:
+  provider: ollama
+  model: llama3
+  base_url: http://localhost:11434
+embeddings:
+  provider: huggingface
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimensions: 384
+vector_store:
+  provider: qdrant
+  mode: local
+  host: localhost
+  port: 6333
+  collection: documents
+ingestion:
+  source_type:
+    - pdf
+  parsing_strategy: raw
+  deduplication: true
+chunking:
+  strategy: semantic
+  chunk_size: 500
+  overlap: 50
+retrieval:
+  strategy: vector
+  top_k: 5
+reranking:
+  enabled: false
+generation:
+  provider: ollama
+  model: llama3
+  temperature: 0.7
+  max_tokens: 1024
