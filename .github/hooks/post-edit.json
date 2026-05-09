@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "event": "postToolUse",
+      "bash": "if command -v ruff >/dev/null 2>&1; then ruff check --quiet src/ tests/; fi && if command -v uv >/dev/null 2>&1; then uv run mypy src/ --quiet --ignore-missing-imports; fi",
+      "timeoutSec": 60
+    }
+  ]
+}
