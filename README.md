@@ -51,19 +51,143 @@ Services started:
 
 ## Configuration
 
-Copy `configs/config.example.yaml` to `configs/config.yaml` and adjust. The file is mounted as a volume into the containers — no rebuild required for config changes.
+Copy `configs/config.example.yaml` to `configs/config.yaml` and adjust. The file is mounted as a volume into all containers — no rebuild is required after changes.
 
-Key settings:
+### `app`
 
-| Section | What it controls |
-|---|---|
-| `llm` | Ollama model name and base URL |
-| `embeddings` | HuggingFace model name |
-| `qdrant` | Connection URL and collection defaults |
-| `ingestion` | Source types, parsing strategy, deduplication, `allowed_base_dir` |
-| `chunking` | Strategy (fixed / sliding / semantic) and parameters |
-| `retrieval` | Mode (vector or hybrid BM25 via RRF), top-k |
-| `reranking` | Reranker type (cross-encoder / MMR) and whether it's enabled |
+General platform settings.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `name` | string | `"local-rag"` | Display name used in logs |
+
+---
+
+### `llm`
+
+Controls the language model used for answer generation.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `provider` | `"ollama"` | `"ollama"` | LLM provider. Only `ollama` is supported |
+| `model` | string | `"llama3"` | Ollama model name (must be pulled with `ollama pull <model>`) |
+| `base_url` | string | `"http://ollama:11434"` | Ollama service URL. Use `http://localhost:11434` for local dev |
+| `temperature` | float | `0.7` | Sampling temperature. `0.0` = deterministic, `1.0` = most random |
+| `max_tokens` | int (> 0) | `1024` | Maximum tokens to generate per response |
+
+---
+
+### `embeddings`
+
+Controls the embedding model used to vectorize documents and queries.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `provider` | `"huggingface"` | `"huggingface"` | Embeddings provider. Only `huggingface` is supported |
+| `model` | string | `"sentence-transformers/all-MiniLM-L6-v2"` | HuggingFace model name. Downloaded at first run into the `hf_cache` volume |
+| `dimensions` | int (> 0) | `384` | Output vector dimensions. **Must match the model's actual output size** |
+
+Common model / dimension pairs:
+
+| Model | Dimensions |
+|-------|-----------|
+| `sentence-transformers/all-MiniLM-L6-v2` | 384 |
+| `sentence-transformers/all-mpnet-base-v2` | 768 |
+| `BAAI/bge-large-en-v1.5` | 1024 |
+
+---
+
+### `vector_store`
+
+Controls the Qdrant vector database connection.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `provider` | `"qdrant"` | `"qdrant"` | Vector store provider. Only `qdrant` is supported |
+| `mode` | `"local"` \| `"cloud"` | `"local"` | `local` connects to a self-hosted instance; `cloud` uses Qdrant Cloud |
+| `host` | string | `"qdrant"` | Qdrant hostname. Use `localhost` for local dev outside Docker |
+| `port` | int | `6333` | Qdrant HTTP port |
+| `collection` | string | `"documents"` | Default collection name (created automatically on first ingest) |
+| `api_key` | string \| null | `null` | API key for Qdrant Cloud. Leave unset for local mode |
+
+---
+
+### `ingestion`
+
+Controls which files are accepted and how they are parsed.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `source_type` | list | all types | File types to accept. Subset of: `pdf`, `html`, `markdown`, `png`, `jpeg`, `pptx`, `docx` |
+| `parsing_strategy` | `"raw"` \| `"structured"` \| `"ocr"` | `"structured"` | See below |
+| `deduplication` | bool | `true` | Skip unchanged files on incremental sync (hash-based) |
+| `allowed_base_dir` | string | `"/data"` | **Security boundary**: only paths under this directory are accepted. Set to the narrowest directory covering your document sources |
+
+**Parsing strategies:**
+
+| Strategy | Description |
+|----------|-------------|
+| `raw` | Extract plain text with no layout analysis |
+| `structured` | Preserve headings, lists, and tables (recommended for most documents) |
+| `ocr` | Run OCR via Surya for scanned images and PDFs with embedded images. Requires the `surya-ocr` optional dependency |
+
+---
+
+### `chunking`
+
+Controls how documents are split into chunks before indexing.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `strategy` | `"fixed"` \| `"sliding"` \| `"semantic"` | `"fixed"` | See below |
+| `chunk_size` | int (> 0) | `500` | Target chunk size in tokens (fixed/sliding) or characters (semantic) |
+| `overlap` | int (≥ 0) | `50` | Token/character overlap between consecutive chunks |
+| `semantic_model` | string \| null | `null` | HuggingFace model used for semantic splitting. **Required when `strategy: semantic`** |
+
+**Chunking strategies:**
+
+| Strategy | Description |
+|----------|-------------|
+| `fixed` | Split into chunks of exactly `chunk_size` tokens with `overlap` |
+| `sliding` | Sliding window: similar to fixed but every chunk shifts by `chunk_size − overlap` |
+| `semantic` | Group sentences by semantic similarity using `semantic_model`; `chunk_size` is the upper bound |
+
+---
+
+### `retrieval`
+
+Controls how documents are retrieved for a given query.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `strategy` | `"vector"` \| `"hybrid"` | `"vector"` | See below |
+| `top_k` | int (> 0) | `5` | Number of documents to return before optional reranking |
+
+**Retrieval strategies:**
+
+| Strategy | Description |
+|----------|-------------|
+| `vector` | Dense vector similarity search only |
+| `hybrid` | Combines dense vector search with sparse BM25 keyword search via Reciprocal Rank Fusion (RRF). Recommended for most use cases |
+
+---
+
+### `reranking`
+
+Optional post-retrieval reranking step to improve result relevance.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable or disable reranking |
+| `method` | `"cross_encoder"` \| `"mmr"` \| null | `null` | Reranking algorithm. Required when `enabled: true` |
+| `model` | string \| null | `null` | HuggingFace model used for cross-encoder scoring. Required when `method: cross_encoder` |
+
+**Reranking methods:**
+
+| Method | Description |
+|--------|-------------|
+| `cross_encoder` | Uses a cross-encoder model (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2`) to re-score query–document pairs. More accurate but slower |
+| `mmr` | Maximal Marginal Relevance: re-ranks by balancing relevance and diversity. No extra model needed |
 
 > **Security**: `ingestion.allowed_base_dir` restricts which host paths can be submitted for ingestion. Set this to the narrowest directory that covers your document sources.
 
@@ -132,18 +256,77 @@ scripts/            # Utility scripts (API doc generation)
 
 ---
 
+## CLI (`mindlm.sh`)
+
+A bash script to manage the platform from any directory.
+
+### Install
+
+```bash
+./mindlm.sh install
+source ~/.bashrc   # or open a new shell
+```
+
+This creates a symlink at `~/.local/bin/mindlm` and adds it to your `PATH`.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `mindlm start` | Start all services and wait for the API to become healthy |
+| `mindlm stop` | Stop all services |
+| `mindlm status` | Show container status |
+| `mindlm health` | Print API health JSON |
+| `mindlm collections` | List all Qdrant collections |
+| `mindlm search "<query>"` | Search the knowledge base |
+| `mindlm ask "<question>"` | Ask a question (RAG) |
+| `mindlm ingest <path>...` | Incremental document sync |
+| `mindlm ingest-full <path>...` | Full document re-index |
+| `mindlm uninstall` | Remove the `~/.local/bin/mindlm` symlink |
+
+### Options
+
+`search` accepts:
+- `--top-k N` — number of results (default: `5`)
+- `--collection NAME` — restrict to a specific collection
+
+`ask` accepts:
+- `--collection NAME` — restrict to a specific collection
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MINDLM_API_BASE` | `http://localhost:8000` | Override the API base URL |
+| `NO_COLOR` | unset | Set to any value to disable colored output |
+
+> Output is pretty-printed with `jq` when available; falls back to raw JSON.
+
+---
+
 ## Development
 
 ```bash
+# Quality
 make test       # Run tests
 make coverage   # Tests with coverage report (opens htmlcov/)
 make lint       # Run all quality checks (ruff + mypy)
 make format     # Format and auto-fix code
+make tox        # Run tests across Python 3.11, 3.12, 3.13
+
+# Releases
 make commit     # Interactive commit with conventional commits
 make bump       # Create a new release (bumps version + updates CHANGELOG)
 make docs       # Generate API documentation
 make build      # Build distributable package
-make clean      # Remove build artifacts and caches
+make clean      # Remove Python build artifacts and caches
+
+# Docker
+make docker-build   # Build Docker images
+make docker-start   # Start all services (docker compose up -d)
+make docker-stop    # Stop all services (docker compose down)
+make docker-logs    # Follow service logs
+make docker-clean   # Remove containers + volumes (destructive)
 ```
 
 To install dependencies for local development:
