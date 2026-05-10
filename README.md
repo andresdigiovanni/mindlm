@@ -1,4 +1,4 @@
-# mindlm
+![mindlm](assets/images/logo.png)
 
 A local, configurable RAG (Retrieval-Augmented Generation) platform built for private, Docker-first deployments. Ingest documents, search them semantically, and ask questions — all using local models (Ollama + HuggingFace) and Qdrant as the vector store. Exposed as both a REST API and an MCP server.
 
