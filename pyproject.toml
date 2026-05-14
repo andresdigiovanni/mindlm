@@ -43,7 +43,6 @@ dev = [
 ]
 
 [project.scripts]
-mindlm = "mindlm.main:main"
 mindlm-api = "mindlm.api.run:main"
 mindlm-mcp = "mindlm.mcp.run:main"
 

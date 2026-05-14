@@ -43,15 +43,11 @@ class IngestionPipeline:
         vectors = self._embedding_provider.embed([c.text for c in chunks])
         use_sparse = self._config.retrieval.strategy == "hybrid"
         points = [
-            Point(
-                id=str(uuid4()),
-                vector=vectors[i],
-                sparse_vector=self._compute_sparse(chunks[i].text)
-                if use_sparse
-                else None,
-                payload=self._build_payload(
-                    path, chunks[i], len(chunks), document_hash
-                ),
+            self._make_point(
+                chunks[i],
+                vectors[i],
+                use_sparse,
+                self._build_payload(path, chunks[i], len(chunks), document_hash),
             )
             for i in range(len(chunks))
         ]
@@ -85,14 +81,7 @@ class IngestionPipeline:
                 payload["parent_id"] = parent_id
                 payload["parent_content"] = parent_chunk.text
                 all_points.append(
-                    Point(
-                        id=str(uuid4()),
-                        vector=child_vectors[i],
-                        sparse_vector=self._compute_sparse(child.text)
-                        if use_sparse
-                        else None,
-                        payload=payload,
-                    )
+                    self._make_point(child, child_vectors[i], use_sparse, payload)
                 )
 
         if all_points:
@@ -116,6 +105,20 @@ class IngestionPipeline:
             "total_chunks": total,
             "ingested_at": datetime.now(tz=UTC).isoformat(),
         }
+
+    def _make_point(
+        self,
+        chunk: Chunk,
+        vector: list[float],
+        use_sparse: bool,
+        payload: dict[str, Any],
+    ) -> Point:
+        return Point(
+            id=str(uuid4()),
+            vector=vector,
+            sparse_vector=self._compute_sparse(chunk.text) if use_sparse else None,
+            payload=payload,
+        )
 
     def _compute_sparse(self, text: str) -> SparseVector:
         if self._bm25 is None:

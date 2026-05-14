@@ -13,6 +13,17 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def _mmr_score(
+    i: int,
+    query_sims: list[float],
+    content_vecs: list[list[float]],
+    selected_vecs: list[list[float]],
+    lambda_mult: float,
+) -> float:
+    max_sim_selected = max(_cosine(content_vecs[i], sv) for sv in selected_vecs)
+    return lambda_mult * query_sims[i] - (1 - lambda_mult) * max_sim_selected
+
+
 class MMRReranker(BaseReranker):
     def __init__(
         self,
@@ -39,15 +50,12 @@ class MMRReranker(BaseReranker):
                 best = max(remaining, key=lambda i: query_sims[i])
             else:
                 selected_vecs = [content_vecs[i] for i in selected_indices]
-
-                def mmr_score(i: int, _sv: list[list[float]] = selected_vecs) -> float:
-                    max_sim_selected = max(_cosine(content_vecs[i], sv) for sv in _sv)
-                    return (
-                        self._lambda * query_sims[i]
-                        - (1 - self._lambda) * max_sim_selected
-                    )
-
-                best = max(remaining, key=mmr_score)
+                best = max(
+                    remaining,
+                    key=lambda i, sv=selected_vecs: _mmr_score(  # type: ignore[misc]
+                        i, query_sims, content_vecs, sv, self._lambda
+                    ),
+                )
             selected_indices.append(best)
             remaining.remove(best)
 

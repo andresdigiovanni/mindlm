@@ -1,15 +1,10 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from mindlm.core.exceptions import ParseError
 from mindlm.core.parsing.strategies.raw import RawParser
 from mindlm.core.parsing.strategies.structured import StructuredParser
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class TestRawParser:

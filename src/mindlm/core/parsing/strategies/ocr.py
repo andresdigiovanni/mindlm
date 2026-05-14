@@ -1,10 +1,29 @@
 from pathlib import Path
 
+import fitz
+from PIL import Image
+from surya.models import FoundationPredictor, RecognitionPredictor
+from surya.settings import settings
+
 from mindlm.core.exceptions import ParseError
 from mindlm.core.parsing.base import DocumentParser
 
 _IMAGE_EXTS = {".png", ".jpeg", ".jpg"}
 _PDF_EXTS = {".pdf"}
+
+
+def _load_predictor() -> RecognitionPredictor:
+    return RecognitionPredictor(
+        FoundationPredictor(checkpoint=settings.RECOGNITION_MODEL_CHECKPOINT)
+    )
+
+
+def _extract_text(results: list) -> list[str]:
+    texts: list[str] = []
+    for result in results:
+        for line in result.text_lines:
+            texts.append(line.text)
+    return texts
 
 
 class OcrParser(DocumentParser):
@@ -17,37 +36,18 @@ class OcrParser(DocumentParser):
         raise ParseError(str(path), "ocr")
 
     def _parse_image(self, path: Path) -> str:
-        from PIL import Image
-        from surya.model.recognition.model import load_model
-        from surya.model.recognition.processor import load_processor
-        from surya.recognition import run_recognition
-
+        predictor = _load_predictor()
         image = Image.open(path)
-        model = load_model()
-        processor = load_processor()
-        results = run_recognition([image], [None], model, processor)
-        texts: list[str] = []
-        for result in results:
-            for line in result.text_lines:
-                texts.append(line.text)
-        return "\n".join(texts)
+        results = predictor([image])
+        return "\n".join(_extract_text(results))
 
     def _parse_pdf(self, path: Path) -> str:
-        import fitz
-        from PIL import Image
-        from surya.model.recognition.model import load_model
-        from surya.model.recognition.processor import load_processor
-        from surya.recognition import run_recognition
-
-        model = load_model()
-        processor = load_processor()
+        predictor = _load_predictor()
         doc = fitz.open(str(path))
         all_texts: list[str] = []
         for page in doc:
             pix = page.get_pixmap(dpi=150)
             image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            results = run_recognition([image], [None], model, processor)
-            for result in results:
-                for line in result.text_lines:
-                    all_texts.append(line.text)
+            results = predictor([image])
+            all_texts.extend(_extract_text(results))
         return "\n".join(all_texts)

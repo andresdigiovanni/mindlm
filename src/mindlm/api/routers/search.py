@@ -10,8 +10,28 @@ from mindlm.api.schemas import (
     SourceRef,
 )
 from mindlm.core.generation.base import LLMProvider
+from mindlm.core.models import Result
 from mindlm.core.reranking.base import BaseReranker
 from mindlm.core.retrieval.retriever import Retriever
+
+
+def _format_context(results: list[Result]) -> str:
+    return "\n\n".join(
+        f"[Source: {r.payload.get('source', '')}]\n{r.payload.get('content', '')}"
+        for r in results
+    )
+
+
+def _extract_sources(results: list[Result]) -> list[SourceRef]:
+    return [
+        SourceRef(
+            source=r.payload.get("source", ""),
+            score=r.score,
+            chunk_index=int(r.payload.get("chunk_index", 0)),
+        )
+        for r in results
+    ]
+
 
 router = APIRouter()
 
@@ -48,10 +68,7 @@ async def ask(
     results = retriever.retrieve(request.question, request.filters)
     results = reranker.rerank(request.question, results)
 
-    context_blocks = "\n\n".join(
-        f"[Source: {r.payload.get('source', '')}]\n{r.payload.get('content', '')}"
-        for r in results
-    )
+    context_blocks = _format_context(results)
     system_msg = "You are a helpful assistant. Answer using only the provided context."
     user_msg = f"Context:\n{context_blocks}\n\nQuestion: {request.question}"
 
@@ -62,12 +79,5 @@ async def ask(
         ]
     )
 
-    sources = [
-        SourceRef(
-            source=r.payload.get("source", ""),
-            score=r.score,
-            chunk_index=int(r.payload.get("chunk_index", 0)),
-        )
-        for r in results
-    ]
+    sources = _extract_sources(results)
     return AskResponse(answer=answer, sources=sources)

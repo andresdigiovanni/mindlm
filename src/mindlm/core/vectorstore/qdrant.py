@@ -15,6 +15,12 @@ from mindlm.core.models import Point, Result, SparseVector
 from mindlm.core.vectorstore.base import VectorStore
 
 
+def _extract_dense_vector(raw: Any) -> list[float]:
+    if isinstance(raw, list) and raw and not isinstance(raw[0], list):
+        return raw
+    return []
+
+
 class QdrantVectorStore(VectorStore):
     def __init__(self, config: VectorStoreConfig) -> None:
         self._client = QdrantClient(
@@ -106,15 +112,11 @@ class QdrantVectorStore(VectorStore):
         if not results:
             return None
         r = results[0]
-        raw_vec = r.vector
-        vector: list[float] = (
-            raw_vec
-            if isinstance(raw_vec, list)
-            and raw_vec
-            and not isinstance(raw_vec[0], list)
-            else []
+        return Point(
+            id=str(r.id),
+            vector=_extract_dense_vector(r.vector),
+            payload=r.payload or {},
         )
-        return Point(id=str(r.id), vector=vector, payload=r.payload or {})
 
     def scroll(
         self, filters: dict, limit: int, offset: str | None
@@ -130,11 +132,7 @@ class QdrantVectorStore(VectorStore):
         result_points = [
             Point(
                 id=str(p.id),
-                vector=p.vector
-                if isinstance(p.vector, list)
-                and p.vector
-                and not isinstance(p.vector[0], list)
-                else [],
+                vector=_extract_dense_vector(p.vector),
                 payload=p.payload or {},
             )
             for p in points

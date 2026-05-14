@@ -13,7 +13,7 @@ A local, configurable RAG (Retrieval-Augmented Generation) platform built for pr
 - **Incremental sync** — detects changes via Qdrant payload hashes; full reingestion also supported
 - **Reranking** — cross-encoder or MMR, configurable and optional
 - **Query processing** — 6 configurable pre-retrieval techniques (rewriting, expansion, HyDE, multi-query, decomposition, step-back) that improve recall; combinable
-- **REST API** — FastAPI with 6 endpoints (health, collections, ingest, search, ask)
+- **REST API** — FastAPI with 6 endpoints (health, collections, ingest/sync, ingest/full, search, ask)
 - **MCP server** — 5 tools over stdio transport for LLM agent integration
 - **Docker Compose** — all services (api, mcp, ollama, qdrant) run with a single command
 - **Path traversal protection** — `ingestion.allowed_base_dir` restricts which directories can be ingested
@@ -226,6 +226,8 @@ query_processing:
     enabled: true
 ```
 
+> Processors are composed additively: if multiple processors are enabled, each generates its own query variants; results are merged and deduplicated before retrieval.
+
 ---
 
 ## RAG Techniques
@@ -273,6 +275,54 @@ Base URL: `http://localhost:8000`
 
 ---
 
+### Multi-tenant collections
+
+Each request to `/search`, `/ask`, `/ingest/sync`, and `/ingest/full` accepts an optional `"collection"` field. When supplied, it targets that Qdrant collection instead of the default in `config.yaml`. Use this to maintain independent knowledge bases per project or team.
+
+```json
+{ "query": "what is RAG?", "collection": "tech-notes" }
+```
+
+Collections are created automatically on first ingest. List existing collections with `GET /collections`.
+
+### Examples
+
+**GET /health**
+```bash
+curl http://localhost:8000/health
+# {"status": "ok", "services": {"qdrant": "ok", "ollama": "ok", "embeddings": "ok"}}
+```
+
+**GET /collections**
+```bash
+curl http://localhost:8000/collections
+# ["documents", "tech-notes"]
+```
+
+**POST /ingest/sync**
+```bash
+curl -X POST http://localhost:8000/ingest/sync \
+  -H "Content-Type: application/json" \
+  -d '{"paths": ["/data/docs/report.pdf"]}'
+# {"added": 12, "updated": 0, "skipped": 3, "errors": []}
+```
+
+**POST /search**
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "what is RAG", "top_k": 3}'
+```
+
+**POST /ask**
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are the benefits of hybrid retrieval?"}'
+```
+
+---
+
 ## MCP Server
 
 The MCP server exposes 5 tools over stdio transport for use with LLM agents (e.g., Claude Desktop):
@@ -290,6 +340,37 @@ To run the MCP server directly (outside Docker):
 ```bash
 mindlm-mcp
 ```
+
+### Claude Desktop integration
+
+Add to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows):
+
+**Via Docker (recommended — services must be running):**
+```json
+{
+  "mcpServers": {
+    "mindlm": {
+      "command": "docker",
+      "args": ["exec", "-i", "mindlm-mcp-1", "mindlm-mcp"]
+    }
+  }
+}
+```
+
+**Via local install:**
+```json
+{
+  "mcpServers": {
+    "mindlm": {
+      "command": "uv",
+      "args": ["run", "mindlm-mcp"],
+      "env": { "CONFIG_PATH": "/absolute/path/to/configs/config.yaml" }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after editing the config.
 
 ---
 
@@ -316,7 +397,6 @@ src/mindlm/
 configs/            # config.example.yaml — copy to config.yaml
 docker/             # Dockerfiles for api and mcp services
 tests/              # Test suite (mirrors src/ structure)
-scripts/            # Utility scripts (API doc generation)
 ```
 
 ---
@@ -324,6 +404,8 @@ scripts/            # Utility scripts (API doc generation)
 ## CLI (`mindlm.sh`)
 
 A bash script to manage the platform from any directory.
+
+> **Windows users:** `mindlm.sh` is a Unix Bash script. On native Windows CMD/PowerShell, use Docker Compose directly: `docker compose up`, `docker compose down`. All `docker compose` commands in this README work on Windows as-is.
 
 ### Install
 
@@ -398,6 +480,30 @@ To install dependencies for local development:
 
 ```bash
 uv sync
+```
+
+### Pre-commit hooks
+
+Install hooks (one-time, after `uv sync`):
+
+```bash
+uv run pre-commit install
+```
+
+Hooks that run automatically on `git commit`:
+
+| Hook | What it does |
+|------|-------------|
+| `ruff` + `ruff-format` | Lints and formats Python code |
+| `mypy` | Type-checks the package |
+| `commitizen` | Enforces conventional commit message format |
+| `trailing-whitespace`, `end-of-file-fixer` | Basic file hygiene |
+| `check-yaml` / `check-toml` / `check-json` | Validates config syntax |
+
+Run all hooks manually:
+
+```bash
+uv run pre-commit run --all-files
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines.

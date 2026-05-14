@@ -56,10 +56,10 @@ uv run pytest
 uv run pytest --cov
 
 # Specific file
-uv run pytest tests/utils/test_sum_2.py
+uv run pytest tests/mindlm/core/test_models.py
 
 # Specific test
-uv run pytest tests/utils/test_sum_2.py::test_sum_2_positive_numbers
+uv run pytest tests/mindlm/core/test_models.py::TestSyncResult::test_sync_result_defaults
 
 # Verbose output
 uv run pytest -v
