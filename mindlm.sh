@@ -103,6 +103,7 @@ ${BOLD}Commands:${NC}
   ingest-full <path>...  Ingest documents (full re-index)
   install                Install mindlm to ~/.local/bin
   uninstall              Remove mindlm from ~/.local/bin
+  config-wizard            Launch interactive configuration generator
   help                   Show this help
 
 ${BOLD}Environment:${NC}
@@ -277,6 +278,15 @@ cmd_ingest_full() {
     -d "$body" | pretty_json
 }
 
+cmd_config_wizard() {
+  local wizard="${SCRIPT_DIR}/config-wizard.sh"
+  if [[ ! -f "${wizard}" ]]; then
+    error "config-wizard.sh not found at ${wizard}"
+    exit 1
+  fi
+  bash "${wizard}" "$@"
+}
+
 cmd_install() {
   local script_path="$SCRIPT_DIR/mindlm.sh"
   local bin_dir="$HOME/.local/bin"
@@ -321,7 +331,7 @@ main() {
 
   # Dependency checks (skip for help/install/uninstall)
   case "$cmd" in
-    help|--help|-h|install|uninstall) ;;
+    help|--help|-h|install|uninstall|config-wizard) ;;
     *) check_deps ;;
   esac
 
@@ -337,6 +347,7 @@ main() {
     ingest-full)     cmd_ingest_full "$@" ;;
     install)         cmd_install "$@" ;;
     uninstall)       cmd_uninstall "$@" ;;
+    config-wizard)   cmd_config_wizard "$@" ;;
     help|--help|-h)  usage; exit 0 ;;
     *)
       error "Unknown command: $cmd"

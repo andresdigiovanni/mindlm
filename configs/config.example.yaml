@@ -1,70 +1,94 @@
+# ============================================================
+# mindlm — Example Configuration
+# ============================================================
+# Copy this file to configs/config.yaml and edit as needed.
+#
+#   cp configs/config.example.yaml configs/config.yaml
+#
+# Or generate one interactively:
+#
+#   ./config-wizard.sh
+#   # or: bash mindlm.sh config-wizard
+#
+# Ready-to-use presets (copy directly to configs/config.yaml):
+#   configs/profiles/minimal.yaml   — quick start, low resource
+#   configs/profiles/balanced.yaml  — recommended default
+#   configs/profiles/full.yaml      — maximum quality, higher resource use
+# ============================================================
+
 app:
-  name: local-rag
+  name: local-rag  # identifier used in logs and API responses
+
+# ── Infrastructure ──────────────────────────────────────────
+# Core services: LLM provider, embedding model, and vector store.
 
 llm:
-  provider: ollama
-  model: llama3
-  base_url: http://ollama:11434
+  provider: ollama           # currently only "ollama" is supported
+  model: llama3              # any model pulled in Ollama (e.g. mistral, gemma2)
+  base_url: http://ollama:11434  # use http://localhost:11434 for local dev outside Docker
+  temperature: 0.7           # 0.0 = deterministic, 1.0 = creative
+  max_tokens: 1024           # maximum tokens in the generated answer
 
 embeddings:
-  provider: huggingface
-  model: sentence-transformers/all-MiniLM-L6-v2
-  dimensions: 384
+  provider: huggingface      # currently only "huggingface" is supported
+  model: BAAI/bge-small-en-v1.5  # HuggingFace model id; downloaded on first run
+  dimensions: 384            # must match the output dimension of the model above
 
 vector_store:
-  provider: qdrant
-  mode: local
-  host: qdrant
+  provider: qdrant           # currently only "qdrant" is supported
+  mode: local                # "local" = self-hosted Qdrant; "cloud" = Qdrant Cloud
+  host: qdrant               # Docker service name; use "localhost" outside Docker
   port: 6333
-  collection: documents
+  collection: documents      # Qdrant collection name; created automatically if absent
+  # api_key: null            # required when mode: cloud (set via env var recommended)
+
+# ── Ingestion Pipeline ──────────────────────────────────────
+# Controls how documents are loaded, parsed, split, and indexed.
 
 ingestion:
-  source_type:
-    - pdf
-    - markdown
-    - html
-    - png
-    - jpeg
-    - pptx
-    - docx
-  parsing_strategy: structured
-  deduplication: true
-  allowed_base_dir: /data
+  source_type: [pdf, docx, markdown]  # accepted file extensions
+  parsing_strategy: raw      # raw = plain text; structured = layout-aware; ocr = image/scan
+  deduplication: true        # skip re-indexing documents with identical content hash
+  allowed_base_dir: /data    # security boundary: only files under this path can be ingested
 
 chunking:
-  strategy: semantic
-  chunk_size: 500
-  overlap: 50
-  semantic_model: sentence-transformers/all-MiniLM-L6-v2
-  parent_chunk_size: null     # int > chunk_size, or null to disable parent-doc mode
-  separators:                 # used only when strategy: recursive
-    - "\n\n"
-    - "\n"
-    - ". "
-    - " "
-    - ""
+  strategy: recursive        # fixed | recursive | sliding | semantic
+  chunk_size: 512            # target chunk size in characters
+  overlap: 64                # overlap between consecutive chunks (0 for fixed strategy)
+  separators: ["\n\n", "\n", ". ", " ", ""]  # used only by recursive strategy; tried in order
+  # semantic_model: BAAI/bge-small-en-v1.5  # required when strategy: semantic
+  # parent_chunk_size: 1500  # optional: store parent chunks for context-aware retrieval
+  #                          # must be greater than chunk_size
+
+# ── Retrieval Pipeline ──────────────────────────────────────
+# Controls how indexed chunks are retrieved and optionally re-ranked.
 
 retrieval:
-  strategy: hybrid
-  top_k: 5
+  strategy: vector           # vector = dense similarity; hybrid = dense + sparse (BM25)
+  top_k: 5                   # number of chunks returned before reranking
 
 reranking:
-  enabled: false
-  method: cross_encoder
-  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  enabled: false             # set to true to re-score retrieved chunks
+  # method: cross_encoder    # cross_encoder | mmr
+  # model: cross-encoder/ms-marco-MiniLM-L-6-v2  # required when method: cross_encoder
+
+# ── Query Processing Pipeline ───────────────────────────────
+# Optional query transformations applied before retrieval.
+# All processors are independent and can be combined freely.
+# Enabled processors run in parallel; results are merged and deduplicated.
 
 query_processing:
-  rewriting:
+  rewriting:               # rephrase the query for better retrieval
     enabled: false
-  expansion:
+  expansion:               # add synonyms and related terms
     enabled: false
-  hyde:
+  hyde:                    # generate a hypothetical document to guide retrieval
     enabled: false
-  multi_query:
+  multi_query:             # generate N query variants and merge results
     enabled: false
-    num_variants: 3
-  decomposition:
+    num_variants: 3        # 2–10
+  decomposition:           # split complex queries into sub-queries
     enabled: false
-    max_subqueries: 4
-  step_back:
+    max_subqueries: 4      # 2–10
+  step_back:               # generate a broader "step-back" question first
     enabled: false

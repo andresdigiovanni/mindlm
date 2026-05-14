@@ -1,0 +1,71 @@
+# ============================================================
+# Profile: minimal
+# Best for: quick trials, low-resource environments, simple Q&A on plain text
+# ============================================================
+
+app:
+  name: local-rag
+
+# ── Infrastructure ──────────────────────────────────────────
+
+llm:
+  provider: ollama
+  model: llama3
+  base_url: http://ollama:11434
+  temperature: 0.7
+  max_tokens: 1024
+
+embeddings:
+  provider: huggingface
+  model: sentence-transformers/all-MiniLM-L6-v2
+  dimensions: 384
+
+vector_store:
+  provider: qdrant
+  mode: local
+  host: qdrant
+  port: 6333
+  collection: documents
+  # api_key: null  # required only when mode: cloud
+
+# ── Ingestion Pipeline ──────────────────────────────────────
+
+ingestion:
+  source_type: [pdf, markdown]
+  parsing_strategy: raw
+  deduplication: true
+  allowed_base_dir: /data
+
+chunking:
+  strategy: fixed
+  chunk_size: 512
+  overlap: 0
+  separators: ["\n\n", "\n", " ", ""]
+
+# ── Retrieval Pipeline ──────────────────────────────────────
+
+retrieval:
+  strategy: vector
+  top_k: 5
+
+reranking:
+  enabled: false
+
+# ── Query Processing Pipeline ───────────────────────────────
+# All processors disabled — minimal profile uses direct vector search only.
+
+query_processing:
+  rewriting:
+    enabled: false
+  expansion:
+    enabled: false
+  hyde:
+    enabled: false
+  multi_query:
+    enabled: false
+    num_variants: 3
+  decomposition:
+    enabled: false
+    max_subqueries: 4
+  step_back:
+    enabled: false

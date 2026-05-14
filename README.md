@@ -54,6 +54,42 @@ Services started:
 
 Copy `configs/config.example.yaml` to `configs/config.yaml` and adjust. The file is mounted as a volume into all containers — no rebuild is required after changes.
 
+### Quick Start
+
+**Option A — Interactive wizard** (recommended):
+```bash
+./config-wizard.sh
+# or via mindlm.sh:
+bash mindlm.sh config-wizard
+```
+
+**Option B — Use a profile preset**:
+```bash
+cp configs/profiles/balanced.yaml configs/config.yaml   # recommended default
+# cp configs/profiles/minimal.yaml configs/config.yaml  # lightweight alternative
+# cp configs/profiles/full.yaml configs/config.yaml     # maximum quality
+```
+
+**Option C — Manual copy**:
+```bash
+cp configs/config.example.yaml configs/config.yaml
+# Edit configs/config.yaml to set your models, paths, and preferences
+```
+
+### Profiles
+
+| Profile | Use Case | Chunking | Embedding Model | Retrieval | Reranking | Query Processors |
+|---------|----------|----------|-----------------|-----------|-----------|------------------|
+| `minimal` | Quick trials, low resource | fixed/512 | all-MiniLM-L6-v2 (384d) | vector, top 5 | disabled | none |
+| `balanced` | Most production use cases | recursive/500 | bge-small-en-v1.5 (384d) | vector, top 10 | cross-encoder | rewriting |
+| `full` | Maximum quality | semantic/500 | bge-large-en-v1.5 (1024d) | hybrid, top 10 | cross-encoder | all |
+
+See [`configs/profiles/`](configs/profiles/) for ready-to-use YAML files.
+
+---
+
+### Infrastructure
+
 ### `app`
 
 General platform settings.
@@ -113,6 +149,8 @@ Controls the Qdrant vector database connection.
 
 ---
 
+### Ingestion Pipeline
+
 ### `ingestion`
 
 Controls which files are accepted and how they are parsed.
@@ -158,6 +196,8 @@ Controls how documents are split into chunks before indexing.
 
 ---
 
+### Retrieval Pipeline
+
 ### `retrieval`
 
 Controls how documents are retrieved for a given query.
@@ -196,6 +236,8 @@ Optional post-retrieval reranking step to improve result relevance.
 > **Security**: `ingestion.allowed_base_dir` restricts which host paths can be submitted for ingestion. Set this to the narrowest directory that covers your document sources.
 
 ---
+
+### Query Processing Pipeline
 
 ### `query_processing`
 

@@ -1,0 +1,77 @@
+# ============================================================
+# Profile: full
+# Best for: maximum retrieval quality — higher resource requirements
+# Note: semantic chunking downloads the embedding model on first run.
+#       All query processors are enabled and run in parallel.
+# ============================================================
+
+app:
+  name: local-rag
+
+# ── Infrastructure ──────────────────────────────────────────
+
+llm:
+  provider: ollama
+  model: llama3
+  base_url: http://ollama:11434
+  temperature: 0.7
+  max_tokens: 2048
+
+embeddings:
+  provider: huggingface
+  model: BAAI/bge-large-en-v1.5
+  dimensions: 1024
+
+vector_store:
+  provider: qdrant
+  mode: local
+  host: qdrant
+  port: 6333
+  collection: documents
+  # api_key: null  # required only when mode: cloud
+
+# ── Ingestion Pipeline ──────────────────────────────────────
+
+ingestion:
+  source_type: [pdf, docx, pptx, html, markdown, png, jpeg]
+  parsing_strategy: structured
+  deduplication: true
+  allowed_base_dir: /data
+
+chunking:
+  strategy: semantic
+  chunk_size: 500
+  overlap: 50
+  semantic_model: BAAI/bge-large-en-v1.5  # must match embeddings.model
+  # parent_chunk_size: 1500  # optional: enable parent-document retrieval
+
+# ── Retrieval Pipeline ──────────────────────────────────────
+
+retrieval:
+  strategy: hybrid
+  top_k: 10
+
+reranking:
+  enabled: true
+  method: cross_encoder
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+
+# ── Query Processing Pipeline ───────────────────────────────
+# All processors enabled — each generates additional query variants
+# that are merged and deduplicated before retrieval.
+
+query_processing:
+  rewriting:
+    enabled: true
+  expansion:
+    enabled: true
+  hyde:
+    enabled: true
+  multi_query:
+    enabled: true
+    num_variants: 3
+  decomposition:
+    enabled: true
+    max_subqueries: 4
+  step_back:
+    enabled: true
