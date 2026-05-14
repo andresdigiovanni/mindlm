@@ -85,7 +85,7 @@ class QdrantVectorStore(VectorStore):
     def delete(self, ids: list[str]) -> None:
         self._client.delete(
             collection_name=self._collection,
-            points_selector=models.PointIdsList(points=ids),
+            points_selector=models.PointIdsList(points=list(ids)),
         )
 
     def delete_by_filter(self, filters: dict) -> None:
@@ -167,8 +167,17 @@ class QdrantVectorStore(VectorStore):
     def _build_filter(self, filters: dict | None) -> models.Filter | None:
         if not filters:
             return None
-        conditions = [
+        conditions: list[models.FieldCondition] = [
             models.FieldCondition(key=k, match=models.MatchValue(value=v))
             for k, v in filters.items()
         ]
-        return models.Filter(must=conditions)
+        must_conditions: list[
+            models.FieldCondition
+            | models.IsEmptyCondition
+            | models.IsNullCondition
+            | models.HasIdCondition
+            | models.HasVectorCondition
+            | models.NestedCondition
+            | models.Filter
+        ] = list(conditions)
+        return models.Filter(must=must_conditions)

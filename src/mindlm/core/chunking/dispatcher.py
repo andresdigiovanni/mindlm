@@ -1,5 +1,6 @@
 from mindlm.core.chunking.base import BaseChunker
 from mindlm.core.chunking.strategies.fixed import FixedChunker
+from mindlm.core.chunking.strategies.recursive import RecursiveChunker
 from mindlm.core.chunking.strategies.semantic import SemanticChunker
 from mindlm.core.chunking.strategies.sliding import SlidingChunker
 from mindlm.core.config.models import ChunkingConfig
@@ -28,6 +29,8 @@ class ChunkerDispatcher:
             case "semantic":
                 assert self._provider is not None
                 return SemanticChunker(self._config, self._provider)
+            case "recursive":
+                return RecursiveChunker(self._config)
             case _:  # pragma: no cover
                 raise ValueError(
                     f"Unknown chunking strategy: {self._config.strategy!r}"

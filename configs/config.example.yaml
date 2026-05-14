@@ -36,6 +36,13 @@ chunking:
   chunk_size: 500
   overlap: 50
   semantic_model: sentence-transformers/all-MiniLM-L6-v2
+  parent_chunk_size: null     # int > chunk_size, or null to disable parent-doc mode
+  separators:                 # used only when strategy: recursive
+    - "\n\n"
+    - "\n"
+    - ". "
+    - " "
+    - ""
 
 retrieval:
   strategy: hybrid
@@ -45,3 +52,19 @@ reranking:
   enabled: false
   method: cross_encoder
   model: cross-encoder/ms-marco-MiniLM-L-6-v2
+
+query_processing:
+  rewriting:
+    enabled: false
+  expansion:
+    enabled: false
+  hyde:
+    enabled: false
+  multi_query:
+    enabled: false
+    num_variants: 3
+  decomposition:
+    enabled: false
+    max_subqueries: 4
+  step_back:
+    enabled: false

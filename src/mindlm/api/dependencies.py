@@ -9,6 +9,7 @@ from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
 from mindlm.core.generation.ollama import OllamaProvider
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
+from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
 from mindlm.core.retrieval.retriever import Retriever
 from mindlm.core.synchronization.synchronizer import Synchronizer
@@ -36,7 +37,19 @@ def get_llm_provider() -> OllamaProvider:
 
 def get_retriever() -> Retriever:
     config = get_config()
-    return Retriever(config.retrieval, get_vectorstore(), get_embedding_provider())
+    return Retriever(
+        config.retrieval,
+        get_vectorstore(),
+        get_embedding_provider(),
+        llm=get_llm_provider(),
+        query_processor=get_query_processor(),
+        resolve_parents=config.chunking.parent_chunk_size is not None,
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def get_query_processor() -> QueryProcessorDispatcher:
+    return QueryProcessorDispatcher(get_config().query_processing)
 
 
 def get_reranker() -> RerankerDispatcher:

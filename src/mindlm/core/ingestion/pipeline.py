@@ -7,7 +7,8 @@ from uuid import uuid4
 from fastembed.sparse.bm25 import Bm25
 
 from mindlm.core.chunking.dispatcher import ChunkerDispatcher
-from mindlm.core.config.models import RAGConfig
+from mindlm.core.chunking.strategies.fixed import FixedChunker
+from mindlm.core.config.models import ChunkingConfig, RAGConfig
 from mindlm.core.embeddings.base import EmbeddingProvider
 from mindlm.core.models import Chunk, Point, SparseVector
 from mindlm.core.parsing.dispatcher import ParserDispatcher
@@ -32,6 +33,9 @@ class IngestionPipeline:
 
     def ingest(self, path: Path) -> int:
         text = self._parser.parse(path)
+        parent_size = self._config.chunking.parent_chunk_size
+        if parent_size is not None:
+            return self._ingest_parent_doc(path, text, parent_size)
         chunks = self._chunker.chunk(text)
         if not chunks:
             return 0
@@ -53,6 +57,47 @@ class IngestionPipeline:
         ]
         self._vectorstore.upsert(points)
         return len(points)
+
+    def _ingest_parent_doc(self, path: Path, text: str, parent_size: int) -> int:
+        parent_config = ChunkingConfig(
+            strategy="fixed", chunk_size=parent_size, overlap=0
+        )
+        parent_chunker = FixedChunker(parent_config)
+        parent_chunks = parent_chunker.chunk(text)
+        if not parent_chunks:
+            return 0
+
+        document_hash = self._calculate_hash(path)
+        all_points: list[Point] = []
+        use_sparse = self._config.retrieval.strategy == "hybrid"
+
+        for parent_chunk in parent_chunks:
+            parent_id = str(uuid4())
+            child_chunks = self._chunker.chunk(parent_chunk.text)
+            if not child_chunks:
+                continue
+            child_texts = [c.text for c in child_chunks]
+            child_vectors = self._embedding_provider.embed(child_texts)
+            for i, child in enumerate(child_chunks):
+                payload = self._build_payload(
+                    path, child, len(child_chunks), document_hash
+                )
+                payload["parent_id"] = parent_id
+                payload["parent_content"] = parent_chunk.text
+                all_points.append(
+                    Point(
+                        id=str(uuid4()),
+                        vector=child_vectors[i],
+                        sparse_vector=self._compute_sparse(child.text)
+                        if use_sparse
+                        else None,
+                        payload=payload,
+                    )
+                )
+
+        if all_points:
+            self._vectorstore.upsert(all_points)
+        return len(all_points)
 
     def _calculate_hash(self, path: Path) -> str:
         return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"

@@ -14,6 +14,7 @@ from mindlm.core.exceptions import LLMUnavailableError
 from mindlm.core.generation.ollama import OllamaProvider
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
+from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
 from mindlm.core.retrieval.retriever import Retriever
 from mindlm.core.synchronization.synchronizer import Synchronizer
@@ -27,9 +28,17 @@ def _build_components() -> tuple[
     config = load_config(Path(config_path))
     embedding_provider = HuggingFaceEmbeddingProvider(config.embeddings)
     vectorstore = QdrantVectorStore(config.vector_store)
-    retriever = Retriever(config.retrieval, vectorstore, embedding_provider)
-    reranker = RerankerDispatcher(config.reranking, embedding_provider)
     llm = OllamaProvider(config.llm)
+    query_processor = QueryProcessorDispatcher(config.query_processing)
+    retriever = Retriever(
+        config.retrieval,
+        vectorstore,
+        embedding_provider,
+        llm=llm,
+        query_processor=query_processor,
+        resolve_parents=config.chunking.parent_chunk_size is not None,
+    )
+    reranker = RerankerDispatcher(config.reranking, embedding_provider)
     parser = ParserDispatcher(config.ingestion)
     chunker = ChunkerDispatcher(config.chunking, embedding_provider)
     pipeline = IngestionPipeline(

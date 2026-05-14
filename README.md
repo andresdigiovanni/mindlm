@@ -12,6 +12,7 @@ A local, configurable RAG (Retrieval-Augmented Generation) platform built for pr
 - **Document ingestion** — PDF, HTML, Markdown, DOCX, PPTX, PNG, JPEG; raw, structured, and OCR (Surya) parsing strategies
 - **Incremental sync** — detects changes via Qdrant payload hashes; full reingestion also supported
 - **Reranking** — cross-encoder or MMR, configurable and optional
+- **Query processing** — 6 configurable pre-retrieval techniques (rewriting, expansion, HyDE, multi-query, decomposition, step-back) that improve recall; combinable
 - **REST API** — FastAPI with 6 endpoints (health, collections, ingest, search, ask)
 - **MCP server** — 5 tools over stdio transport for LLM agent integration
 - **Docker Compose** — all services (api, mcp, ollama, qdrant) run with a single command
@@ -139,10 +140,12 @@ Controls how documents are split into chunks before indexing.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `strategy` | `"fixed"` \| `"sliding"` \| `"semantic"` | `"fixed"` | See below |
-| `chunk_size` | int (> 0) | `500` | Target chunk size in tokens (fixed/sliding) or characters (semantic) |
+| `strategy` | `"fixed"` \| `"sliding"` \| `"semantic"` \| `"recursive"` | `"fixed"` | See below |
+| `chunk_size` | int (> 0) | `500` | Target chunk size in tokens (fixed/sliding/recursive) or characters (semantic) |
 | `overlap` | int (≥ 0) | `50` | Token/character overlap between consecutive chunks |
 | `semantic_model` | string \| null | `null` | HuggingFace model used for semantic splitting. **Required when `strategy: semantic`** |
+| `parent_chunk_size` | int \| null | `null` | When set, enables parent-document retrieval: small child chunks are indexed for precise retrieval; results are replaced with their parent content before returning. Must be greater than `chunk_size` |
+| `separators` | list[string] | `["\n\n", "\n", ". ", " ", ""]` | Separator hierarchy for recursive chunking. Tried in order; falls back to hard character splitting |
 
 **Chunking strategies:**
 
@@ -151,6 +154,7 @@ Controls how documents are split into chunks before indexing.
 | `fixed` | Split into chunks of exactly `chunk_size` tokens with `overlap` |
 | `sliding` | Sliding window: similar to fixed but every chunk shifts by `chunk_size − overlap` |
 | `semantic` | Group sentences by semantic similarity using `semantic_model`; `chunk_size` is the upper bound |
+| `recursive` | Try separators in order (`\n\n` → `\n` → `. ` → ` ` → character), recursing into oversized pieces. Best for structured text with paragraphs and sentences |
 
 ---
 
@@ -190,6 +194,67 @@ Optional post-retrieval reranking step to improve result relevance.
 | `mmr` | Maximal Marginal Relevance: re-ranks by balancing relevance and diversity. No extra model needed |
 
 > **Security**: `ingestion.allowed_base_dir` restricts which host paths can be submitted for ingestion. Set this to the narrowest directory that covers your document sources.
+
+---
+
+### `query_processing`
+
+Optional pre-retrieval pipeline that transforms the query into one or more alternative representations to improve recall. All processors are disabled by default. Multiple processors can be enabled simultaneously — the dispatcher fans out, merges all result sets, and deduplicates before reranking.
+
+| Processor | Config key | Description |
+|-----------|------------|-------------|
+| Query Rewriting | `rewriting` | Reformulates the query for better semantic search alignment |
+| Query Expansion | `expansion` | Adds synonyms and related terms to broaden the search surface |
+| HyDE | `hyde` | Generates a hypothetical answer passage and embeds that instead of the raw query |
+| Multi-Query | `multi_query` | Generates N rephrased variants, retrieves for each, then merges and deduplicates |
+| Query Decomposition | `decomposition` | Breaks a complex query into focused sub-questions, retrieves for each |
+| Step-Back Prompting | `step_back` | Generates a more abstract version of the query for wider recall |
+
+Per-processor config keys:
+
+| Key | Type | Default | Applies to |
+|-----|------|---------|------------|
+| `enabled` | bool | `false` | all processors |
+| `num_variants` | int (2–10) | `3` | `multi_query` only |
+| `max_subqueries` | int (2–10) | `4` | `decomposition` only |
+
+Example — enable query rewriting:
+
+```yaml
+query_processing:
+  rewriting:
+    enabled: true
+```
+
+---
+
+## RAG Techniques
+
+### Chunking strategies
+
+| Strategy | When to use |
+|----------|-------------|
+| `fixed` | Uniform documents; simplest baseline |
+| `sliding` | Overlapping windows; reduces context loss at chunk boundaries |
+| `semantic` | Variable-length chunks that respect semantic boundaries; best for dense narrative text |
+| `recursive` | Structured text with paragraphs and sentences; tries progressively finer separators and recurses into oversized pieces |
+
+**Parent-document retrieval** (`parent_chunk_size`): Index small child chunks for precise vector matching, but surface the parent chunk (broader context) in results. Set `parent_chunk_size` to an integer greater than `chunk_size`. Child chunks are stored with `parent_id` and `parent_content` in the Qdrant payload; retrieval automatically substitutes parent content before returning results. Use this when fine retrieval granularity and full-context answers are both required.
+
+### Query processing techniques
+
+Query processing runs before retrieval to transform the incoming query into alternative representations, improving recall without changing the retrieval or reranking configuration.
+
+| Technique | Config key | What it does |
+|-----------|------------|---------------|
+| Query Rewriting | `rewriting` | Reformulates the query for better semantic alignment |
+| Query Expansion | `expansion` | Adds synonyms and related terms to broaden the search surface |
+| HyDE | `hyde` | Embeds a generated hypothetical answer passage instead of the raw query |
+| Multi-Query | `multi_query` | Generates N rephrased variants, retrieves for each, merges results |
+| Query Decomposition | `decomposition` | Splits a complex query into focused sub-questions, retrieves for each |
+| Step-Back Prompting | `step_back` | Abstracts the query to a higher level for wider recall |
+
+Multiple techniques can be active at once. The `QueryProcessorDispatcher` fans out to all enabled processors and deduplicates the combined result set before passing it to reranking.
 
 ---
 
