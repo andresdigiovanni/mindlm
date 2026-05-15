@@ -16,9 +16,6 @@
 #   configs/profiles/full.yaml      — maximum quality, higher resource use
 # ============================================================
 
-app:
-  name: local-rag  # identifier used in logs and API responses
-
 # ── Infrastructure ──────────────────────────────────────────
 # Core services: LLM provider, embedding model, and vector store.
 
@@ -92,3 +89,16 @@ query_processing:
     max_subqueries: 4      # 2–10
   step_back:               # generate a broader "step-back" question first
     enabled: false
+
+# ── Observability ────────────────────────────────────────────
+# Optional Langfuse tracing for the full RAG pipeline.
+# Start self-hosted Langfuse: docker compose --profile langfuse up
+# Then open http://localhost:3000 (admin@example.com / changeme)
+# For Langfuse Cloud: set host to https://cloud.langfuse.com
+
+observability:
+  public_key: pk-lf-local-dev  # Langfuse project public key
+  secret_key: sk-lf-local-dev  # Langfuse project secret key
+  host: http://langfuse:3000   # Langfuse host; use http://localhost:3000 outside Docker
+  flush_at: 15                 # events batched before sending
+  flush_interval: 0.5          # max seconds before flushing a batch

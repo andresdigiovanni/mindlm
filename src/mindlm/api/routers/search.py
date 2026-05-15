@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends
+from langfuse.decorators import observe
 
 from mindlm.api.dependencies import get_llm_provider, get_reranker, get_retriever
 from mindlm.api.schemas import (
@@ -37,6 +38,7 @@ router = APIRouter()
 
 
 @router.post("/search", response_model=SearchResponse)
+@observe(name="search")
 async def search(
     request: SearchRequest,
     retriever: Retriever = Depends(get_retriever),
@@ -59,6 +61,7 @@ async def search(
 
 
 @router.post("/ask", response_model=AskResponse)
+@observe(name="ask")
 async def ask(
     request: AskRequest,
     retriever: Retriever = Depends(get_retriever),

@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastembed.sparse.bm25 import Bm25
+from langfuse.decorators import langfuse_context, observe
 
 from mindlm.core.config.models import RetrievalConfig
 from mindlm.core.embeddings.base import EmbeddingProvider
@@ -30,9 +31,14 @@ class Retriever:
         self._resolve_parents = resolve_parents
         self._bm25: Bm25 | None = None
 
+    @observe(name="retrieve")
     def retrieve(
         self, query: str, filters: dict[str, Any] | None = None
     ) -> list[Result]:
+        langfuse_context.update_current_observation(
+            input=query,
+            metadata={"strategy": self._config.strategy, "top_k": self._config.top_k},
+        )
         if self._query_processor is not None:
             assert self._llm is not None
             queries: list[str] = self._query_processor.process(query, self._llm)

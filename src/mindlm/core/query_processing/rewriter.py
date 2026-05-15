@@ -1,3 +1,5 @@
+from langfuse.decorators import observe
+
 from mindlm.core.generation.base import LLMProvider
 from mindlm.core.query_processing.base import BaseQueryProcessor
 
@@ -10,6 +12,7 @@ _PROMPT = (
 
 
 class QueryRewriter(BaseQueryProcessor):
+    @observe(name="query-rewrite")
     def process(self, query: str, llm: LLMProvider) -> list[str]:
         response = llm.chat(
             [{"role": "user", "content": _PROMPT.format(query=query)}]

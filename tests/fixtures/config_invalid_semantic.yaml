@@ -1,5 +1,3 @@
-app:
-  name: test
 llm:
   provider: ollama
   model: llama3

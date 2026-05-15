@@ -59,6 +59,7 @@ def _make_pipeline(
         Chunk(text="chunk 2", index=1, metadata={}),
     ]
     embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
+    vectorstore.scroll.return_value = ([], None)  # no duplicate by default
 
     pipeline = IngestionPipeline(cfg, parser, chunker, embedding_provider, vectorstore)
     return pipeline, parser, chunker, embedding_provider, vectorstore
@@ -184,6 +185,7 @@ class TestIngestionPipelineParentDoc:
             Chunk(text="child 2", index=1, metadata={}),
         ]
         embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
+        vectorstore.scroll.return_value = ([], None)  # no duplicate by default
 
         pipeline = IngestionPipeline(
             cfg, parser, chunker, embedding_provider, vectorstore
@@ -200,6 +202,7 @@ class TestIngestionPipelineParentDoc:
         parser.parse.return_value = "text"
         chunker.chunk.return_value = [Chunk(text="chunk", index=0, metadata={})]
         ep.embed.return_value = [[0.1] * 4]
+        vs.scroll.return_value = ([], None)
         pipeline = IngestionPipeline(cfg, parser, chunker, ep, vs)
         doc = tmp_path / "doc.md"
         doc.write_text("text", encoding="utf-8")
@@ -307,3 +310,98 @@ class TestIngestionPipelineParentDoc:
 
         assert result == 0
         vs.upsert.assert_not_called()
+
+
+class TestIngestionPipelineDeduplication:
+    def _make_dedup_pipeline(
+        self, deduplication: bool
+    ) -> tuple[IngestionPipeline, MagicMock, MagicMock, MagicMock, MagicMock]:
+        cfg = RAGConfig(
+            llm=LLMConfig(
+                provider="ollama", model="llama3", base_url="http://localhost"
+            ),
+            embeddings=EmbeddingsConfig(
+                provider="huggingface", model="test", dimensions=4
+            ),
+            vector_store=VectorStoreConfig(
+                provider="qdrant",
+                mode="local",
+                host="localhost",
+                port=6333,
+                collection="docs",
+            ),
+            ingestion=IngestionConfig(
+                source_type=["markdown"],
+                parsing_strategy="raw",
+                deduplication=deduplication,
+            ),
+            chunking=ChunkingConfig(strategy="fixed", chunk_size=100, overlap=0),
+            retrieval=RetrievalConfig(strategy="vector", top_k=5),
+            reranking=RerankingConfig(enabled=False),
+        )
+        parser = MagicMock()
+        chunker = MagicMock()
+        ep = MagicMock()
+        vs = MagicMock()
+        parser.parse.return_value = "text"
+        chunker.chunk.return_value = [Chunk(text="chunk", index=0, metadata={})]
+        ep.embed.return_value = [[0.1] * 4]
+        pipeline = IngestionPipeline(cfg, parser, chunker, ep, vs)
+        return pipeline, parser, chunker, ep, vs
+
+    def test_should_skip_ingestion_when_duplicate_detected(
+        self, tmp_path: Path
+    ) -> None:
+        pipeline, _parser, _chunker, _ep, vs = self._make_dedup_pipeline(
+            deduplication=True
+        )
+        vs.scroll.return_value = ([MagicMock()], None)  # existing document found
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        result = pipeline.ingest(doc)
+
+        assert result == 0
+        vs.upsert.assert_not_called()
+
+    def test_should_ingest_when_no_duplicate_exists(self, tmp_path: Path) -> None:
+        pipeline, _parser, _chunker, _ep, vs = self._make_dedup_pipeline(
+            deduplication=True
+        )
+        vs.scroll.return_value = ([], None)  # no existing document
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        result = pipeline.ingest(doc)
+
+        assert result == 1
+        vs.upsert.assert_called_once()
+
+    def test_should_ingest_even_when_duplicate_exists_if_dedup_disabled(
+        self, tmp_path: Path
+    ) -> None:
+        pipeline, _parser, _chunker, _ep, vs = self._make_dedup_pipeline(
+            deduplication=False
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        result = pipeline.ingest(doc)
+
+        assert result == 1
+        vs.scroll.assert_not_called()
+        vs.upsert.assert_called_once()
+
+    def test_should_scroll_with_document_hash_filter(self, tmp_path: Path) -> None:
+        pipeline, _parser, _chunker, _ep, vs = self._make_dedup_pipeline(
+            deduplication=True
+        )
+        vs.scroll.return_value = ([], None)
+        doc = tmp_path / "doc.md"
+        doc.write_text("hello", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        call_args = vs.scroll.call_args
+        filters = call_args.kwargs.get("filters") or call_args.args[0]
+        assert "document_hash" in filters

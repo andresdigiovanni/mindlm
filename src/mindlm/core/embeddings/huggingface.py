@@ -1,5 +1,7 @@
 import os
+from typing import cast
 
+from langfuse.decorators import observe
 from sentence_transformers import SentenceTransformer
 
 from mindlm.core.config.models import EmbeddingsConfig
@@ -13,6 +15,7 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
         self._model = SentenceTransformer(config.model, cache_folder=cache)
         self._config = config
 
+    @observe(name="hf-embed")
     def embed(self, texts: list[str]) -> list[list[float]]:
         try:
             result: list[list[float]] = self._model.encode(
@@ -23,7 +26,7 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
             raise EmbeddingError(model=self._config.model) from exc
 
     def embed_one(self, text: str) -> list[float]:
-        return self.embed([text])[0]
+        return cast("list[float]", self.embed([text])[0])
 
     @property
     def dimensions(self) -> int:

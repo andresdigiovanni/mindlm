@@ -3,9 +3,6 @@
 # Best for: quick trials, low-resource environments, simple Q&A on plain text
 # ============================================================
 
-app:
-  name: local-rag
-
 # ── Infrastructure ──────────────────────────────────────────
 
 llm:
@@ -69,3 +66,12 @@ query_processing:
     max_subqueries: 4
   step_back:
     enabled: false
+
+# ── Observability ────────────────────────────────────────────
+
+observability:
+  public_key: pk-lf-local-dev
+  secret_key: sk-lf-local-dev
+  host: http://langfuse:3000   # use http://localhost:3000 outside Docker
+  flush_at: 15
+  flush_interval: 0.5

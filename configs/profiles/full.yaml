@@ -5,9 +5,6 @@
 #       All query processors are enabled and run in parallel.
 # ============================================================
 
-app:
-  name: local-rag
-
 # ── Infrastructure ──────────────────────────────────────────
 
 llm:
@@ -75,3 +72,12 @@ query_processing:
     max_subqueries: 4
   step_back:
     enabled: true
+
+# ── Observability ────────────────────────────────────────────
+
+observability:
+  public_key: pk-lf-local-dev
+  secret_key: sk-lf-local-dev
+  host: http://langfuse:3000   # use http://localhost:3000 outside Docker
+  flush_at: 15
+  flush_interval: 0.5

@@ -1,6 +1,3 @@
-app:
-  name: local-rag
-
 llm:
   provider: ollama
   model: llama3

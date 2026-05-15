@@ -1,10 +1,13 @@
 import pytest
+from pydantic import ValidationError
 
 from mindlm.core.config.models import (
     ChunkingConfig,
     MultiQueryConfig,
+    ObservabilityConfig,
     QueryDecompositionConfig,
     QueryProcessingConfig,
+    RAGConfig,
 )
 
 
@@ -85,3 +88,84 @@ class TestQueryProcessingConfigDefaults:
         config = QueryDecompositionConfig(enabled=True, max_subqueries=2)
 
         assert config.max_subqueries == 2
+
+
+class TestObservabilityConfig:
+    def test_should_have_default_values_when_instantiated_without_arguments(
+        self,
+    ) -> None:
+        cfg = ObservabilityConfig()
+        assert cfg.public_key == "pk-lf-local-dev"
+        assert cfg.secret_key == "sk-lf-local-dev"  # noqa: S105
+        assert cfg.host == "http://langfuse:3000"
+        assert cfg.flush_at == 15
+        assert cfg.flush_interval == 0.5
+
+    def test_should_raise_when_flush_at_is_zero(self) -> None:
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(flush_at=0)
+
+    def test_should_raise_when_flush_interval_is_zero(self) -> None:
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(flush_interval=0.0)
+
+    def test_should_raise_when_flush_at_is_negative(self) -> None:
+        with pytest.raises(ValidationError):
+            ObservabilityConfig(flush_at=-1)
+
+    def test_should_include_observability_field_when_rag_config_is_instantiated(
+        self,
+    ) -> None:
+        assert isinstance(RAGConfig().observability, ObservabilityConfig)
+
+
+class TestRAGConfigSemanticModelValidator:
+    def _make_semantic_rag_config(
+        self, embeddings_model: str, semantic_model: str
+    ) -> RAGConfig:
+        from mindlm.core.config.models import (
+            ChunkingConfig,
+            EmbeddingsConfig,
+        )
+
+        return RAGConfig(
+            embeddings=EmbeddingsConfig(
+                provider="huggingface", model=embeddings_model, dimensions=384
+            ),
+            chunking=ChunkingConfig(
+                strategy="semantic",
+                chunk_size=500,
+                overlap=50,
+                semantic_model=semantic_model,
+            ),
+        )
+
+    def test_should_raise_when_semantic_model_differs_from_embeddings_model(
+        self,
+    ) -> None:
+        with pytest.raises(ValidationError, match="semantic_model"):
+            self._make_semantic_rag_config(
+                embeddings_model="model-a", semantic_model="model-b"
+            )
+
+    def test_should_be_valid_when_semantic_model_matches_embeddings_model(
+        self,
+    ) -> None:
+        config = self._make_semantic_rag_config(
+            embeddings_model="BAAI/bge-large-en-v1.5",
+            semantic_model="BAAI/bge-large-en-v1.5",
+        )
+
+        assert config.chunking.semantic_model == config.embeddings.model
+
+    def test_should_not_validate_when_strategy_is_not_semantic(self) -> None:
+        from mindlm.core.config.models import ChunkingConfig, EmbeddingsConfig
+
+        config = RAGConfig(
+            embeddings=EmbeddingsConfig(
+                provider="huggingface", model="model-a", dimensions=384
+            ),
+            chunking=ChunkingConfig(strategy="fixed", chunk_size=500, overlap=50),
+        )
+
+        assert config.chunking.strategy == "fixed"

@@ -1,3 +1,5 @@
+from langfuse.decorators import langfuse_context, observe
+
 from mindlm.core.config.models import RerankingConfig
 from mindlm.core.embeddings.base import EmbeddingProvider
 from mindlm.core.models import Result
@@ -29,7 +31,24 @@ class RerankerDispatcher:
             case _:
                 raise ValueError(f"Unknown reranking method: {self._config.method}")
 
+    @observe(name="rerank")
     def rerank(self, query: str, results: list[Result]) -> list[Result]:
+        langfuse_context.update_current_observation(
+            metadata={
+                "enabled": self._config.enabled,
+                "method": self._config.method if self._config.enabled else None,
+                "input_count": len(results),
+            }
+        )
         if not self._config.enabled or self._reranker is None:
             return results
-        return self._reranker.rerank(query, results)
+        reranked = self._reranker.rerank(query, results)
+        langfuse_context.update_current_observation(
+            metadata={
+                "enabled": self._config.enabled,
+                "method": self._config.method if self._config.enabled else None,
+                "input_count": len(results),
+                "output_count": len(reranked),
+            }
+        )
+        return reranked

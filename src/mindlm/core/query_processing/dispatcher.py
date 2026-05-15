@@ -1,5 +1,7 @@
 from collections.abc import Callable
 
+from langfuse.decorators import langfuse_context, observe
+
 from mindlm.core.config.models import QueryProcessingConfig
 from mindlm.core.generation.base import LLMProvider
 from mindlm.core.query_processing.base import BaseQueryProcessor
@@ -30,7 +32,12 @@ class QueryProcessorDispatcher:
             if getattr(config, attr).enabled
         ]
 
+    @observe(name="query-process")
     def process(self, query: str, llm: LLMProvider) -> list[str]:
+        langfuse_context.update_current_observation(
+            input=query,
+            metadata={"processors": [type(p).__name__ for p in self._processors]},
+        )
         seen: set[str] = {query}
         result: list[str] = [query]
         for processor in self._processors:
@@ -38,4 +45,5 @@ class QueryProcessorDispatcher:
                 if q not in seen:
                     seen.add(q)
                     result.append(q)
+        langfuse_context.update_current_observation(output=result)
         return result

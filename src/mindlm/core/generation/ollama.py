@@ -4,6 +4,7 @@ import logging
 from collections.abc import Iterator
 
 import httpx
+from langfuse.decorators import observe
 
 from mindlm.core.config.models import LLMConfig
 from mindlm.core.exceptions import LLMUnavailableError
@@ -53,6 +54,7 @@ class OllamaProvider(LLMProvider):
         else:
             logger.info("Ollama model '%s' already available.", model)
 
+    @observe(as_type="generation", name="ollama-chat")
     def chat(self, messages: list[dict[str, str]]) -> str:
         if not self.healthcheck():
             raise LLMUnavailableError(

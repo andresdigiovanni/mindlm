@@ -1,3 +1,5 @@
+from langfuse.decorators import observe
+
 from mindlm.core.config.models import MultiQueryConfig
 from mindlm.core.generation.base import LLMProvider
 from mindlm.core.query_processing._parsing import parse_numbered_list
@@ -18,6 +20,7 @@ class MultiQueryProcessor(BaseQueryProcessor):
     def __init__(self, config: MultiQueryConfig) -> None:
         self._num_variants = config.num_variants
 
+    @observe(name="query-multi")
     def process(self, query: str, llm: LLMProvider) -> list[str]:
         prompt = _PROMPT.format(num_variants=self._num_variants, query=query)
         response = llm.chat([{"role": "user", "content": prompt}]).strip()

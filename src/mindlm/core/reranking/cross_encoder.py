@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+from langfuse.decorators import observe
 from sentence_transformers import CrossEncoder
 
 from mindlm.core.config.models import RerankingConfig
@@ -13,6 +14,7 @@ class CrossEncoderReranker(BaseReranker):
             config.model or "cross-encoder/ms-marco-MiniLM-L-6-v2"
         )
 
+    @observe(name="cross-encoder-rerank")
     def rerank(self, query: str, results: list[Result]) -> list[Result]:
         if not results:
             return results

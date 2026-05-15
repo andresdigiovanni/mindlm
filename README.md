@@ -17,6 +17,7 @@ A local, configurable RAG (Retrieval-Augmented Generation) platform built for pr
 - **MCP server** — 5 tools over stdio transport for LLM agent integration
 - **Docker Compose** — all services (api, mcp, ollama, qdrant) run with a single command
 - **Path traversal protection** — `ingestion.allowed_base_dir` restricts which directories can be ingested
+- **Observability (opt-in)** — Langfuse tracing for the full RAG pipeline; all stages (`search`/`ask` → retrieve → query processing, embedding, reranking, generation) are instrumented; disabled by default
 
 ---
 
@@ -53,6 +54,14 @@ Services started:
 - **mcp** — MCP server (stdio)
 - **qdrant** — vector store at `http://localhost:6333` · dashboard at `http://localhost:6333/dashboard`
 - **ollama** — LLM runtime at `http://localhost:11434`
+
+To also start self-hosted Langfuse observability:
+
+```bash
+docker compose --profile langfuse up
+```
+
+Langfuse UI: `http://localhost:3000` (default credentials: `admin@example.com` / `changeme` — change before production).
 
 ---
 
@@ -275,6 +284,23 @@ query_processing:
 ```
 
 > Processors are composed additively: if multiple processors are enabled, each generates its own query variants; results are merged and deduplicated before retrieval.
+
+---
+
+### `observability`
+
+Optional Langfuse tracing for the RAG pipeline. When enabled, `search` and `ask` requests are traced end-to-end: retrieval, query processing, embedding, reranking, and generation each appear as a named span.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable or disable Langfuse tracing. All `@observe` decorators are transparent no-ops when disabled |
+| `public_key` | string | `"pk-lf-local-dev"` | Langfuse project public key |
+| `secret_key` | string | `"sk-lf-local-dev"` | Langfuse project secret key |
+| `host` | string | `"http://langfuse:3000"` | Langfuse host URL. Use `http://localhost:3000` for local dev outside Docker; `https://cloud.langfuse.com` for Langfuse Cloud |
+| `flush_at` | int | `15` | Events batched before sending |
+| `flush_interval` | float | `0.5` | Maximum seconds before flushing a batch |
+
+Self-hosted Langfuse runs as an optional Docker Compose profile — see [Quick Start](#quick-start) for the command.
 
 ---
 

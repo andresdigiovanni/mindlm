@@ -1,3 +1,5 @@
+from langfuse.decorators import observe
+
 from mindlm.core.config.models import QueryDecompositionConfig
 from mindlm.core.generation.base import LLMProvider
 from mindlm.core.query_processing._parsing import parse_numbered_list
@@ -19,6 +21,7 @@ class QueryDecomposer(BaseQueryProcessor):
     def __init__(self, config: QueryDecompositionConfig) -> None:
         self._max_subqueries = config.max_subqueries
 
+    @observe(name="query-decompose")
     def process(self, query: str, llm: LLMProvider) -> list[str]:
         prompt = _PROMPT.format(max_subqueries=self._max_subqueries, query=query)
         response = llm.chat([{"role": "user", "content": prompt}]).strip()

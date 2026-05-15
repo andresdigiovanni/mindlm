@@ -3,10 +3,6 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
-class AppConfig(BaseModel):
-    name: str = "local-rag"
-
-
 class LLMConfig(BaseModel):
     provider: Literal["ollama"] = "ollama"
     model: str = "llama3"
@@ -107,8 +103,15 @@ class QueryProcessingConfig(BaseModel):
     step_back: StepBackConfig = StepBackConfig()
 
 
+class ObservabilityConfig(BaseModel):
+    public_key: str = "pk-lf-local-dev"
+    secret_key: str = "sk-lf-local-dev"  # noqa: S105
+    host: str = "http://langfuse:3000"
+    flush_at: int = Field(default=15, gt=0)
+    flush_interval: float = Field(default=0.5, gt=0)
+
+
 class RAGConfig(BaseModel):
-    app: AppConfig = AppConfig()
     llm: LLMConfig = LLMConfig()
     embeddings: EmbeddingsConfig = EmbeddingsConfig()
     vector_store: VectorStoreConfig = VectorStoreConfig()
@@ -117,3 +120,16 @@ class RAGConfig(BaseModel):
     retrieval: RetrievalConfig = RetrievalConfig()
     reranking: RerankingConfig = RerankingConfig()
     query_processing: QueryProcessingConfig = QueryProcessingConfig()
+    observability: ObservabilityConfig = ObservabilityConfig()
+
+    @model_validator(mode="after")
+    def _check_semantic_model_consistency(self) -> "RAGConfig":
+        if (
+            self.chunking.strategy == "semantic"
+            and self.chunking.semantic_model != self.embeddings.model
+        ):
+            raise ValueError(
+                f"chunking.semantic_model ({self.chunking.semantic_model!r}) "
+                f"must match embeddings.model ({self.embeddings.model!r})"
+            )
+        return self

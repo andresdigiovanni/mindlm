@@ -33,13 +33,15 @@ class IngestionPipeline:
 
     def ingest(self, path: Path) -> int:
         text = self._parser.parse(path)
+        document_hash = self._calculate_hash(path)
+        if self._config.ingestion.deduplication and self._is_duplicate(document_hash):
+            return 0
         parent_size = self._config.chunking.parent_chunk_size
         if parent_size is not None:
-            return self._ingest_parent_doc(path, text, parent_size)
+            return self._ingest_parent_doc(path, text, parent_size, document_hash)
         chunks = self._chunker.chunk(text)
         if not chunks:
             return 0
-        document_hash = self._calculate_hash(path)
         vectors = self._embedding_provider.embed([c.text for c in chunks])
         use_sparse = self._config.retrieval.strategy == "hybrid"
         points = [
@@ -54,7 +56,15 @@ class IngestionPipeline:
         self._vectorstore.upsert(points)
         return len(points)
 
-    def _ingest_parent_doc(self, path: Path, text: str, parent_size: int) -> int:
+    def _is_duplicate(self, document_hash: str) -> bool:
+        points, _ = self._vectorstore.scroll(
+            filters={"document_hash": document_hash}, limit=1, offset=None
+        )
+        return len(points) > 0
+
+    def _ingest_parent_doc(
+        self, path: Path, text: str, parent_size: int, document_hash: str
+    ) -> int:
         parent_config = ChunkingConfig(
             strategy="fixed", chunk_size=parent_size, overlap=0
         )
@@ -63,7 +73,6 @@ class IngestionPipeline:
         if not parent_chunks:
             return 0
 
-        document_hash = self._calculate_hash(path)
         all_points: list[Point] = []
         use_sparse = self._config.retrieval.strategy == "hybrid"
 

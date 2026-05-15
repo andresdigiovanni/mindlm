@@ -1,3 +1,5 @@
+from langfuse.decorators import observe
+
 from mindlm.core.config.models import RerankingConfig
 from mindlm.core.embeddings.base import EmbeddingProvider
 from mindlm.core.models import Result
@@ -34,6 +36,7 @@ class MMRReranker(BaseReranker):
         self._provider = embedding_provider
         self._lambda = lambda_mult
 
+    @observe(name="mmr-rerank")
     def rerank(self, query: str, results: list[Result]) -> list[Result]:
         if not results:
             return results
