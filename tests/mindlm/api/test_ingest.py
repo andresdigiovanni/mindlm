@@ -18,7 +18,9 @@ def clear_overrides() -> Generator[None, None, None]:
 class TestIngestEndpoint:
     def test_ingest_sync(self) -> None:
         mock_sync = MagicMock()
-        mock_sync.sync.return_value = SyncResult(added=2, updated=0, skipped=1)
+        mock_sync.sync.return_value = SyncResult(
+            added=2, updated=0, skipped=1, chunks=5
+        )
         mock_config = MagicMock()
         mock_config.ingestion.allowed_base_dir = "/data"
         app.dependency_overrides[deps.get_synchronizer] = lambda: mock_sync
@@ -33,10 +35,13 @@ class TestIngestEndpoint:
         data = response.json()
         assert data["added"] == 2
         assert data["skipped"] == 1
+        assert data["chunks"] == 5
 
     def test_ingest_full(self) -> None:
         mock_sync = MagicMock()
-        mock_sync.full_reingest.return_value = SyncResult(added=3, updated=0, skipped=0)
+        mock_sync.full_reingest.return_value = SyncResult(
+            added=3, updated=0, skipped=0, chunks=12
+        )
         mock_config = MagicMock()
         mock_config.retrieval.strategy = "vector"
         mock_config.vector_store.collection = "docs"
@@ -51,3 +56,4 @@ class TestIngestEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["added"] == 3
+        assert data["chunks"] == 12

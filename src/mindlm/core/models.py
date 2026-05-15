@@ -44,4 +44,5 @@ class SyncResult:
     added: int = 0
     updated: int = 0
     skipped: int = 0
+    chunks: int = 0
     errors: list[str] = field(default_factory=list)

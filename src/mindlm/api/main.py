@@ -1,6 +1,11 @@
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from mindlm.api.dependencies import get_embedding_provider, get_llm_provider
 from mindlm.api.routers import collections, health, ingest, search
 from mindlm.api.schemas import ErrorResponse
 from mindlm.core.exceptions import (
@@ -9,7 +14,20 @@ from mindlm.core.exceptions import (
     ParseError,
 )
 
-app = FastAPI(title="MindLM RAG API", version="0.1.0")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    logger.info("Pre-warming embedding model...")
+    get_embedding_provider()
+    logger.info("Embedding model ready.")
+    logger.info("Ensuring Ollama model is available...")
+    get_llm_provider().ensure_model()
+    yield
+
+
+app = FastAPI(title="MindLM RAG API", version="0.1.0", lifespan=lifespan)
 
 
 @app.exception_handler(LLMUnavailableError)

@@ -67,4 +67,5 @@ def get_pipeline() -> IngestionPipeline:
 
 
 def get_synchronizer() -> Synchronizer:
-    return Synchronizer(get_vectorstore(), get_pipeline())
+    config = get_config()
+    return Synchronizer(get_vectorstore(), get_pipeline(), config.ingestion.source_type)

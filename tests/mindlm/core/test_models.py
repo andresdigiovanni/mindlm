@@ -20,6 +20,7 @@ class TestSyncResult:
         assert r.added == 0
         assert r.updated == 0
         assert r.skipped == 0
+        assert r.chunks == 0
         assert r.errors == []
 
 

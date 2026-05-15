@@ -91,6 +91,7 @@ ${BOLD}Usage:${NC} mindlm <command> [options]
 ${BOLD}Commands:${NC}
   start                  Start all services (waits for API health)
   stop                   Stop all services
+  build                  Build Docker images
   status                 Show service status
   health                 Show API health status
   collections            List available collections
@@ -99,8 +100,8 @@ ${BOLD}Commands:${NC}
     --collection NAME      Restrict to a specific collection
   ask <question>         Ask a question
     --collection NAME      Restrict to a specific collection
-  ingest <path>...       Ingest documents (incremental sync)
-  ingest-full <path>...  Ingest documents (full re-index)
+  ingest [<path>...]       Ingest documents (incremental sync; defaults to /data)
+  ingest-full [<path>...]  Ingest documents (full re-index; defaults to /data)
   install                Install mindlm to ~/.local/bin
   uninstall              Remove mindlm from ~/.local/bin
   config-wizard            Launch interactive configuration generator
@@ -144,6 +145,12 @@ cmd_stop() {
   info "Stopping services..."
   docker compose -f "$COMPOSE_FILE" down
   success "Services stopped."
+}
+
+cmd_build() {
+  info "Building Docker images..."
+  docker compose -f "$COMPOSE_FILE" build
+  success "Build complete."
 }
 
 cmd_status() {
@@ -201,7 +208,7 @@ cmd_search() {
   body="$(printf '{"query":%s,"top_k":%d,"filters":null,"collection":%s}' \
     "$query_json" "$top_k" "$collection")"
 
-  curl -sf -X POST "$API_BASE/search" \
+  curl -s -X POST "$API_BASE/search" \
     -H "Content-Type: application/json" \
     -d "$body" | pretty_json
 }
@@ -239,16 +246,22 @@ cmd_ask() {
   body="$(printf '{"question":%s,"filters":null,"collection":%s}' \
     "$question_json" "$collection")"
 
-  curl -sf -X POST "$API_BASE/ask" \
+  curl -s -X POST "$API_BASE/ask" \
     -H "Content-Type: application/json" \
     -d "$body" | pretty_json
 }
 
 cmd_ingest() {
   if [[ $# -eq 0 ]]; then
-    error "Missing required argument: <path>..."
-    printf 'Usage: mindlm ingest <path> [<path>...]\n' >&2
-    exit 1
+    printf '[mindlm] No paths specified. Ingest /data? [Y/n] '
+    read -r reply
+    reply="${reply:-Y}"
+    if [[ "$reply" =~ ^[Yy]$ ]]; then
+      set -- /data
+    else
+      error "Aborted."
+      exit 1
+    fi
   fi
 
   local paths_json
@@ -256,16 +269,22 @@ cmd_ingest() {
   local body
   body="$(printf '{"paths":%s}' "$paths_json")"
 
-  curl -sf -X POST "$API_BASE/ingest/sync" \
+  curl -s -X POST "$API_BASE/ingest/sync" \
     -H "Content-Type: application/json" \
     -d "$body" | pretty_json
 }
 
 cmd_ingest_full() {
   if [[ $# -eq 0 ]]; then
-    error "Missing required argument: <path>..."
-    printf 'Usage: mindlm ingest-full <path> [<path>...]\n' >&2
-    exit 1
+    printf '[mindlm] No paths specified. Full re-index /data? [Y/n] '
+    read -r reply
+    reply="${reply:-Y}"
+    if [[ "$reply" =~ ^[Yy]$ ]]; then
+      set -- /data
+    else
+      error "Aborted."
+      exit 1
+    fi
   fi
 
   local paths_json
@@ -273,7 +292,7 @@ cmd_ingest_full() {
   local body
   body="$(printf '{"paths":%s}' "$paths_json")"
 
-  curl -sf -X POST "$API_BASE/ingest/full" \
+  curl -s -X POST "$API_BASE/ingest/full" \
     -H "Content-Type: application/json" \
     -d "$body" | pretty_json
 }
@@ -338,6 +357,7 @@ main() {
   case "$cmd" in
     start)           cmd_start "$@" ;;
     stop)            cmd_stop "$@" ;;
+    build)           cmd_build "$@" ;;
     status)          cmd_status "$@" ;;
     health)          cmd_health "$@" ;;
     collections)     cmd_collections "$@" ;;

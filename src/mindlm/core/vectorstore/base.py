@@ -1,3 +1,4 @@
+import contextlib
 from abc import ABC, abstractmethod
 
 from mindlm.core.models import Point, Result, SparseVector
@@ -40,6 +41,11 @@ class VectorStore(ABC):
 
     @abstractmethod
     def recreate_collection(self, name: str, dense_dim: int, sparse: bool) -> None: ...
+
+    def ensure_collection(self, name: str, dense_dim: int, sparse: bool) -> None:
+        """Create the collection only if it does not already exist."""
+        with contextlib.suppress(Exception):
+            self.create_collection(name, dense_dim, sparse)
 
     @abstractmethod
     def list_collections(self) -> list[str]: ...

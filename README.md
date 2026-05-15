@@ -38,14 +38,20 @@ cd mindlm
 cp configs/config.example.yaml configs/config.yaml
 # Edit configs/config.yaml to set your models, paths, and preferences
 
-# 3. Start all services
+# 3. Add your documents
+mkdir data
+# Copy documents into data/ — this folder is mounted as /data inside the containers.
+# To use a different path, update the volume in docker-compose.yml and
+# set ingestion.allowed_base_dir in config.yaml accordingly.
+
+# 4. Start all services
 docker compose up
 ```
 
 Services started:
 - **api** — REST API at `http://localhost:8000`
 - **mcp** — MCP server (stdio)
-- **qdrant** — vector store at `http://localhost:6333`
+- **qdrant** — vector store at `http://localhost:6333` · dashboard at `http://localhost:6333/dashboard`
 - **ollama** — LLM runtime at `http://localhost:11434`
 
 ---

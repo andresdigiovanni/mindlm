@@ -13,6 +13,9 @@ services:
     volumes:
       - ./configs/config.yaml:/config/config.yaml:ro
       - hf_cache:/cache/hf
+      # Mount your document directory into the container.
+      # Must match ingestion.allowed_base_dir in config.yaml (default: /data).
+      # - ./data:/data:ro
     networks:
       - rag_net
 
@@ -30,6 +33,9 @@ services:
     volumes:
       - ./configs/config.yaml:/config/config.yaml:ro
       - hf_cache:/cache/hf
+      # Mount your document directory into the container.
+      # Must match ingestion.allowed_base_dir in config.yaml (default: /data).
+      # - ./data:/data:ro
     networks:
       - rag_net
 

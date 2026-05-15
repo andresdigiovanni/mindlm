@@ -36,11 +36,18 @@ async def ingest_sync(
     config: RAGConfig = Depends(get_config),
 ) -> SyncResponse:
     paths = _safe_paths(request.paths, config.ingestion.allowed_base_dir)
-    result = sync.sync(paths)
+    use_sparse = config.retrieval.strategy == "hybrid"
+    result = sync.sync(
+        paths,
+        collection=config.vector_store.collection,
+        dense_dim=config.embeddings.dimensions,
+        sparse=use_sparse,
+    )
     return SyncResponse(
         added=result.added,
         updated=result.updated,
         skipped=result.skipped,
+        chunks=result.chunks,
         errors=result.errors,
     )
 
@@ -63,5 +70,6 @@ async def ingest_full(
         added=result.added,
         updated=result.updated,
         skipped=result.skipped,
+        chunks=result.chunks,
         errors=result.errors,
     )

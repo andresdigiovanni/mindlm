@@ -78,7 +78,7 @@ class TestSynchronizer:
         doc2 = tmp_path / "doc2.txt"
         doc2.write_text("b", encoding="utf-8")
         vs.scroll.return_value = ([], None)
-        pipeline.ingest.side_effect = [RuntimeError("fail"), None]
+        pipeline.ingest.side_effect = [RuntimeError("fail"), 3]
 
         result = sync.sync([doc1, doc2])
 

@@ -46,9 +46,6 @@ bump: ## Bump version with commitizen
 build: ## Build package
 	uv build
 
-docs: ## Generate API documentation
-	uv run python scripts/generate_api_docs.py
-
 ## Docker
 
 docker-build: ## Build Docker images

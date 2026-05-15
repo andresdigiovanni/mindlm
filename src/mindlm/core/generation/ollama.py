@@ -1,5 +1,6 @@
 import contextlib
 import json
+import logging
 from collections.abc import Iterator
 
 import httpx
@@ -7,6 +8,8 @@ import httpx
 from mindlm.core.config.models import LLMConfig
 from mindlm.core.exceptions import LLMUnavailableError
 from mindlm.core.generation.base import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaProvider(LLMProvider):
@@ -29,6 +32,27 @@ class OllamaProvider(LLMProvider):
         ):
             return False
 
+    def ensure_model(self) -> None:
+        """Pull the configured model if it is not already available locally."""
+        if not self.healthcheck():
+            raise LLMUnavailableError(
+                f"Ollama not available at {self._config.base_url}. "
+                "Verify that the service is running."
+            )
+        response = self._client.get("/api/tags")
+        available = [m["model"] for m in response.json().get("models", [])]
+        model = self._config.model
+        if not any(name == model or name.startswith(model + ":") for name in available):
+            logger.info("Pulling Ollama model '%s' (this may take a while)...", model)
+            self._client.post(
+                "/api/pull",
+                json={"model": model, "stream": False},
+                timeout=httpx.Timeout(3600.0),
+            )
+            logger.info("Ollama model '%s' ready.", model)
+        else:
+            logger.info("Ollama model '%s' already available.", model)
+
     def chat(self, messages: list[dict[str, str]]) -> str:
         if not self.healthcheck():
             raise LLMUnavailableError(
@@ -47,7 +71,13 @@ class OllamaProvider(LLMProvider):
                 },
             },
         )
-        return str(response.json()["message"]["content"])
+        data = response.json()
+        if "error" in data:
+            raise LLMUnavailableError(
+                f"Ollama error for model '{self._config.model}': {data['error']}. "
+                f"Pull the model first: ollama pull {self._config.model}"
+            )
+        return str(data["message"]["content"])
 
     def stream(self, messages: list[dict[str, str]]) -> Iterator[str]:
         if not self.healthcheck():

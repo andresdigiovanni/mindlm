@@ -52,6 +52,7 @@ class SyncResponse(BaseModel):
     added: int
     updated: int
     skipped: int
+    chunks: int
     errors: list[str]
 
 
