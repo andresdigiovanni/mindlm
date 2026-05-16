@@ -224,6 +224,13 @@ class TestRetrieverQueryProcessing:
         with pytest.raises(ValueError, match="llm is required"):
             Retriever(config, vs, ep, query_processor=processor)
 
+    def test_resolve_parents_and_windows_raises(self) -> None:
+        config = RetrievalConfig(strategy="vector", top_k=5)
+        vs = MagicMock()
+        ep = MagicMock()
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            Retriever(config, vs, ep, resolve_parents=True, resolve_windows=True)
+
     def test_handles_empty_results_from_all_queries(self) -> None:
         retriever, _vs = self._make_retriever_with_processor(
             queries_returned=["q1", "q2"], search_results=[]
@@ -232,3 +239,57 @@ class TestRetrieverQueryProcessing:
         results = retriever.retrieve("original")
 
         assert results == []
+
+
+class TestRetrieverWindowResolution:
+    def _make_retriever_with_results(
+        self, results: list[Result], resolve_windows: bool = False
+    ) -> Retriever:
+        config = RetrievalConfig(strategy="vector", top_k=5)
+        vectorstore = MagicMock()
+        vectorstore.search.return_value = results
+        ep = MagicMock()
+        ep.embed.return_value = [[0.1] * 10]
+        return Retriever(config, vectorstore, ep, resolve_windows=resolve_windows)
+
+    def test_no_modification_when_resolve_windows_false(self) -> None:
+        results = [Result(id="1", score=0.9, payload={"window_context": "window"})]
+        retriever = self._make_retriever_with_results(results, resolve_windows=False)
+        output = retriever.retrieve("q")
+        assert output[0].payload.get("content") is None
+
+    def test_replaces_content_with_window_context(self) -> None:
+        results = [
+            Result(
+                id="1",
+                score=0.9,
+                payload={
+                    "content": "single sentence",
+                    "window_context": "A. single sentence. B.",
+                },
+            )
+        ]
+        retriever = self._make_retriever_with_results(results, resolve_windows=True)
+        output = retriever.retrieve("q")
+        assert output[0].payload["content"] == "A. single sentence. B."
+
+    def test_leaves_content_unchanged_when_no_window_context(self) -> None:
+        results = [Result(id="1", score=0.9, payload={"content": "text"})]
+        retriever = self._make_retriever_with_results(results, resolve_windows=True)
+        output = retriever.retrieve("q")
+        assert output[0].payload["content"] == "text"
+
+    def test_preserves_other_payload_fields(self) -> None:
+        results = [
+            Result(
+                id="1", score=0.9, payload={"source": "doc.md", "window_context": "ctx"}
+            )
+        ]
+        retriever = self._make_retriever_with_results(results, resolve_windows=True)
+        output = retriever.retrieve("q")
+        assert output[0].payload["source"] == "doc.md"
+
+    def test_handles_empty_results(self) -> None:
+        retriever = self._make_retriever_with_results([], resolve_windows=True)
+        output = retriever.retrieve("q")
+        assert output == []

@@ -18,7 +18,9 @@ from mindlm.core.models import Chunk
 
 
 def _make_rag_config(
-    strategy: str = "vector", parent_chunk_size: int | None = None
+    strategy: str = "vector",
+    parent_chunk_size: int | None = None,
+    allowed_base_dir: str = "/",
 ) -> RAGConfig:
     return RAGConfig(
         llm=LLMConfig(provider="ollama", model="llama3", base_url="http://localhost"),
@@ -31,7 +33,10 @@ def _make_rag_config(
             collection="docs",
         ),
         ingestion=IngestionConfig(
-            source_type=["markdown"], parsing_strategy="raw", deduplication=True
+            source_type=["markdown"],
+            parsing_strategy="raw",
+            deduplication=True,
+            allowed_base_dir=allowed_base_dir,
         ),
         chunking=ChunkingConfig(
             strategy="fixed",
@@ -298,11 +303,115 @@ class TestIngestionPipelineParentDoc:
 
         assert result == 2
 
-    def test_returns_zero_for_empty_text(self, tmp_path: Path) -> None:
-        pipeline, parser, _chunker, _ep, vs = self._make_parent_pipeline(
-            parent_chunk_size=500
+
+class TestIngestionPipelineContextualizer:
+    def _make_pipeline_with_contextualizer(
+        self,
+        contextualizer: MagicMock | None = None,
+        chunks: list[Chunk] | None = None,
+    ) -> tuple[IngestionPipeline, MagicMock, MagicMock, MagicMock, MagicMock]:
+        cfg = _make_rag_config()
+        parser = MagicMock()
+        chunker = MagicMock()
+        embedding_provider = MagicMock()
+        vectorstore = MagicMock()
+
+        parser.parse.return_value = "some text content"
+        chunker.chunk.return_value = chunks or [
+            Chunk(text="chunk 1", index=0, metadata={}),
+            Chunk(text="chunk 2", index=1, metadata={}),
+        ]
+        embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
+        vectorstore.scroll.return_value = ([], None)
+
+        pipeline = IngestionPipeline(
+            cfg,
+            parser,
+            chunker,
+            embedding_provider,
+            vectorstore,
+            contextualizer=contextualizer,
         )
+        return pipeline, parser, chunker, embedding_provider, vectorstore
+
+    def test_contextualizer_called_once_per_chunk(self, tmp_path: Path) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "ctx chunk"
+        pipeline, _p, _c, _ep, _vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        assert ctx.contextualize.call_count == 2
+
+    def test_contextualizer_output_used_for_embedding(self, tmp_path: Path) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "contextualized text"
+        pipeline, _p, _c, ep, _vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        texts_embedded = ep.embed.call_args[0][0]
+        assert all(t == "contextualized text" for t in texts_embedded)
+
+    def test_contextualizer_none_does_not_change_chunks(self, tmp_path: Path) -> None:
+        pipeline, _p, _c, ep, _vs = self._make_pipeline_with_contextualizer(
+            contextualizer=None
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        texts_embedded = ep.embed.call_args[0][0]
+        assert texts_embedded == ["chunk 1", "chunk 2"]
+
+    def test_window_context_written_to_payload(self, tmp_path: Path) -> None:
+        window_chunks = [
+            Chunk(
+                text="sentence 1",
+                index=0,
+                metadata={"window_context": "sentence 1 sentence 2"},
+            ),
+            Chunk(
+                text="sentence 2",
+                index=1,
+                metadata={"window_context": "sentence 1 sentence 2"},
+            ),
+        ]
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            chunks=window_chunks
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert "window_context" in points[0].payload
+        assert points[0].payload["window_context"] == "sentence 1 sentence 2"
+
+    def test_no_window_context_when_metadata_empty(self, tmp_path: Path) -> None:
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer()
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert "window_context" not in points[0].payload
+
+    def test_returns_zero_for_empty_text(self, tmp_path: Path) -> None:
+        pipeline, parser, chunker, _ep, vs = self._make_pipeline_with_contextualizer()
         parser.parse.return_value = ""
+        chunker.chunk.return_value = []
         doc = tmp_path / "doc.md"
         doc.write_text("", encoding="utf-8")
 
@@ -334,6 +443,7 @@ class TestIngestionPipelineDeduplication:
                 source_type=["markdown"],
                 parsing_strategy="raw",
                 deduplication=deduplication,
+                allowed_base_dir="/",
             ),
             chunking=ChunkingConfig(strategy="fixed", chunk_size=100, overlap=0),
             retrieval=RetrievalConfig(strategy="vector", top_k=5),

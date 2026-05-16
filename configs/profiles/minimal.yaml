@@ -38,6 +38,7 @@ chunking:
   chunk_size: 512
   overlap: 0
   separators: ["\n\n", "\n", " ", ""]
+  # window_size: 2  # used only when strategy: sentence_window
 
 # ── Retrieval Pipeline ──────────────────────────────────────
 
@@ -47,6 +48,12 @@ retrieval:
 
 reranking:
   enabled: false
+
+# ── Contextual Retrieval (opt-in) ───────────────────────────
+# Prepends an LLM-generated context sentence to each chunk at ingest time.
+# Improves retrieval quality at the cost of one LLM call per chunk.
+# contextual_retrieval:
+#   enabled: false
 
 # ── Query Processing Pipeline ───────────────────────────────
 # All processors disabled — minimal profile uses direct vector search only.

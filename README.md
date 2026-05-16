@@ -11,7 +11,8 @@ A local, configurable RAG (Retrieval-Augmented Generation) platform built for pr
 - **Qdrant vector store** — multi-tenant via named collections; supports vector and hybrid BM25 (RRF) retrieval
 - **Document ingestion** — PDF, HTML, Markdown, DOCX, PPTX, PNG, JPEG; raw, structured, and OCR (Surya) parsing strategies
 - **Incremental sync** — detects changes via Qdrant payload hashes; full reingestion also supported
-- **Reranking** — cross-encoder or MMR, configurable and optional
+- **Contextual Retrieval** — at ingest time, the LLM generates a one-sentence context for each chunk describing how it fits within the full document; prepended to the chunk text before embedding to improve retrieval precision
+- **Reranking** — cross-encoder, MMR, LLM-as-reranker, or contextual compression; configurable and optional
 - **Query processing** — 6 configurable pre-retrieval techniques (rewriting, expansion, HyDE, multi-query, decomposition, step-back) that improve recall; combinable
 - **REST API** — FastAPI with 6 endpoints (health, collections, ingest/sync, ingest/full, search, ask)
 - **MCP server** — 5 tools over stdio transport for LLM agent integration
@@ -193,10 +194,11 @@ Controls how documents are split into chunks before indexing.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `strategy` | `"fixed"` \| `"sliding"` \| `"semantic"` \| `"recursive"` | `"fixed"` | See below |
+| `strategy` | `"fixed"` \| `"sliding"` \| `"semantic"` \| `"recursive"` \| `"sentence_window"` | `"fixed"` | See below |
 | `chunk_size` | int (> 0) | `500` | Target chunk size in tokens (fixed/sliding/recursive) or characters (semantic) |
 | `overlap` | int (≥ 0) | `50` | Token/character overlap between consecutive chunks |
 | `semantic_model` | string \| null | `null` | HuggingFace model used for semantic splitting. **Required when `strategy: semantic`** |
+| `window_size` | int (> 0) \| null | `null` | Number of surrounding sentences stored as context alongside each sentence chunk. **Required when `strategy: sentence_window`** |
 | `parent_chunk_size` | int \| null | `null` | When set, enables parent-document retrieval: small child chunks are indexed for precise retrieval; results are replaced with their parent content before returning. Must be greater than `chunk_size` |
 | `separators` | list[string] | `["\n\n", "\n", ". ", " ", ""]` | Separator hierarchy for recursive chunking. Tried in order; falls back to hard character splitting |
 
@@ -208,6 +210,7 @@ Controls how documents are split into chunks before indexing.
 | `sliding` | Sliding window: similar to fixed but every chunk shifts by `chunk_size − overlap` |
 | `semantic` | Group sentences by semantic similarity using `semantic_model`; `chunk_size` is the upper bound |
 | `recursive` | Try separators in order (`\n\n` → `\n` → `. ` → ` ` → character), recursing into oversized pieces. Best for structured text with paragraphs and sentences |
+| `sentence_window` | Index individual sentences as retrieval units; each sentence stores a window of `window_size` surrounding sentences in its payload. At retrieval time, the full window is returned instead of the bare sentence |
 
 ---
 
@@ -238,7 +241,7 @@ Optional post-retrieval reranking step to improve result relevance.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | bool | `false` | Enable or disable reranking |
-| `method` | `"cross_encoder"` \| `"mmr"` \| null | `null` | Reranking algorithm. Required when `enabled: true` |
+| `method` | `"cross_encoder"` \| `"mmr"` \| `"llm"` \| `"compression"` \| null | `null` | Reranking algorithm. Required when `enabled: true` |
 | `model` | string \| null | `null` | HuggingFace model used for cross-encoder scoring. Required when `method: cross_encoder` |
 
 **Reranking methods:**
@@ -247,6 +250,8 @@ Optional post-retrieval reranking step to improve result relevance.
 |--------|-------------|
 | `cross_encoder` | Uses a cross-encoder model (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2`) to re-score query–document pairs. More accurate but slower |
 | `mmr` | Maximal Marginal Relevance: re-ranks by balancing relevance and diversity. No extra model needed |
+| `llm` | LLM-as-reranker: the LLM scores each (query, chunk) pair on a 1–10 relevance scale; results are reordered by that score. No extra model needed beyond the configured LLM |
+| `compression` | Contextual compression: the LLM extracts only the query-relevant sentences from each chunk; chunks with no relevant content are dropped entirely |
 
 > **Security**: `ingestion.allowed_base_dir` restricts which host paths can be submitted for ingestion. Set this to the narrowest directory that covers your document sources.
 
@@ -314,8 +319,22 @@ Self-hosted Langfuse runs as an optional Docker Compose profile — see [Quick S
 | `sliding` | Overlapping windows; reduces context loss at chunk boundaries |
 | `semantic` | Variable-length chunks that respect semantic boundaries; best for dense narrative text |
 | `recursive` | Structured text with paragraphs and sentences; tries progressively finer separators and recurses into oversized pieces |
+| `sentence_window` | Granular sentence-level retrieval with surrounding context; ideal when precise localization matters but answers need broader context |
 
 **Parent-document retrieval** (`parent_chunk_size`): Index small child chunks for precise vector matching, but surface the parent chunk (broader context) in results. Set `parent_chunk_size` to an integer greater than `chunk_size`. Child chunks are stored with `parent_id` and `parent_content` in the Qdrant payload; retrieval automatically substitutes parent content before returning results. Use this when fine retrieval granularity and full-context answers are both required.
+
+**Sentence-window retrieval** (`strategy: sentence_window`): Each sentence is a separate retrieval unit in Qdrant, but carries a `window_context` payload field containing the `window_size` sentences on either side. At retrieval time, results are automatically expanded to the full window before being returned or reranked. Set `window_size` to control how much surrounding context is surfaced (e.g., `3` means 3 sentences before + 3 after). Pairs well with `llm` or `compression` reranking to trim the window down to only what is relevant.
+
+### Contextual Retrieval
+
+When `contextual_retrieval.enabled: true`, the ingestion pipeline calls the configured LLM once per chunk during indexing. The LLM generates a one-sentence description of how the chunk relates to the full document; this context is prepended to the chunk text before embedding. This improves recall for chunks that are too short or too terse to retrieve well on their own.
+
+```yaml
+contextual_retrieval:
+  enabled: true
+```
+
+Contextual retrieval adds one LLM call per chunk at ingest time. For large corpora, prefer batch ingestion (`/ingest/full`) and a fast local model.
 
 ### Query processing techniques
 
@@ -331,6 +350,15 @@ Query processing runs before retrieval to transform the incoming query into alte
 | Step-Back Prompting | `step_back` | Abstracts the query to a higher level for wider recall |
 
 Multiple techniques can be active at once. The `QueryProcessorDispatcher` fans out to all enabled processors and deduplicates the combined result set before passing it to reranking.
+
+### Reranking methods
+
+| Method | When to use |
+|--------|-------------|
+| `cross_encoder` | Highest accuracy; re-scores every (query, chunk) pair with a dedicated model. Adds latency proportional to `top_k` |
+| `mmr` | Diversity-first; good when results tend to be redundant. No extra model needed |
+| `llm` | LLM-as-reranker; scores each (query, chunk) pair 1–10. Useful when no cross-encoder model is available |
+| `compression` | Contextual compression; the LLM rewrites each chunk to keep only query-relevant content, then drops empty results. Best combined with `sentence_window` chunking to prune oversized windows |
 
 ---
 

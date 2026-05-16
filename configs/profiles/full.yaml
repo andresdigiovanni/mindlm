@@ -41,6 +41,7 @@ chunking:
   overlap: 50
   semantic_model: BAAI/bge-large-en-v1.5  # must match embeddings.model
   # parent_chunk_size: 1500  # optional: enable parent-document retrieval
+  # window_size: 2  # used only when strategy: sentence_window
 
 # ── Retrieval Pipeline ──────────────────────────────────────
 
@@ -52,6 +53,14 @@ reranking:
   enabled: true
   method: cross_encoder
   model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  # method: llm          # LLM-based 1-10 scoring (requires llm config)
+  # method: compression  # Contextual compression - extracts relevant parts only
+
+# ── Contextual Retrieval (opt-in) ───────────────────────────
+# Prepends an LLM-generated context sentence to each chunk at ingest time.
+# Improves retrieval quality at the cost of one LLM call per chunk.
+# contextual_retrieval:
+#   enabled: false
 
 # ── Query Processing Pipeline ───────────────────────────────
 # All processors enabled — each generates additional query variants

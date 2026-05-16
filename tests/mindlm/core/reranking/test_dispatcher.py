@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mindlm.core.config.models import RerankingConfig
 from mindlm.core.models import Result
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
@@ -37,6 +39,46 @@ class TestRerankerDispatcher:
             output = dispatcher.rerank("query", results)
 
             assert output[0].score == 0.9
+
+    def test_llm_method_requires_llm_provider(self) -> None:
+        config = RerankingConfig(enabled=True, method="llm")
+        with pytest.raises(ValueError, match="LLMProvider required"):
+            RerankerDispatcher(config)
+
+    def test_compression_method_requires_llm_provider(self) -> None:
+        config = RerankingConfig(enabled=True, method="compression")
+        with pytest.raises(ValueError, match="LLMProvider required"):
+            RerankerDispatcher(config)
+
+    def test_llm_method_reranks_by_llm_score(self) -> None:
+        llm = MagicMock()
+        llm.chat.side_effect = ["3", "9", "5"]
+        config = RerankingConfig(enabled=True, method="llm")
+        dispatcher = RerankerDispatcher(config, llm=llm)
+        results = [
+            Result(id="a", score=0.9, payload={"content": "text a"}),
+            Result(id="b", score=0.8, payload={"content": "text b"}),
+            Result(id="c", score=0.7, payload={"content": "text c"}),
+        ]
+
+        output = dispatcher.rerank("query", results)
+
+        assert output[0].id == "b"  # score 9 is highest
+
+    def test_compression_method_drops_empty_results(self) -> None:
+        llm = MagicMock()
+        llm.chat.side_effect = ["relevant content", ""]
+        config = RerankingConfig(enabled=True, method="compression")
+        dispatcher = RerankerDispatcher(config, llm=llm)
+        results = [
+            Result(id="a", score=0.9, payload={"content": "text a"}),
+            Result(id="b", score=0.8, payload={"content": "text b"}),
+        ]
+
+        output = dispatcher.rerank("query", results)
+
+        assert len(output) == 1
+        assert output[0].id == "a"
 
 
 class TestMMRReranker:

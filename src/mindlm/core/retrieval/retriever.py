@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 from fastembed.sparse.bm25 import Bm25
@@ -20,15 +21,22 @@ class Retriever:
         llm: LLMProvider | None = None,
         query_processor: QueryProcessorDispatcher | None = None,
         resolve_parents: bool = False,
+        resolve_windows: bool = False,
     ) -> None:
         if query_processor is not None and llm is None:
             raise ValueError("llm is required when query_processor is provided")
+        if resolve_parents and resolve_windows:
+            raise ValueError(
+                "resolve_parents and resolve_windows are mutually exclusive: "
+                "parent_chunk_size cannot be combined with strategy='sentence_window'"
+            )
         self._config = config
         self._vectorstore = vectorstore
         self._embedding_provider = embedding_provider
         self._llm = llm
         self._query_processor = query_processor
         self._resolve_parents = resolve_parents
+        self._resolve_windows = resolve_windows
         self._bm25: Bm25 | None = None
 
     @observe(name="retrieve")
@@ -56,6 +64,8 @@ class Retriever:
         results = merged[: self._config.top_k]
         if self._resolve_parents:
             results = self._apply_parent_resolution(results)
+        if self._resolve_windows:
+            results = self._apply_window_resolution(results)
         return results
 
     def _retrieve_single(
@@ -76,12 +86,20 @@ class Retriever:
                 )
 
     def _apply_parent_resolution(self, results: list[Result]) -> list[Result]:
-        from dataclasses import replace
-
         resolved = []
         for r in results:
             if "parent_content" in r.payload:
                 new_payload = {**r.payload, "content": r.payload["parent_content"]}
+                resolved.append(replace(r, payload=new_payload))
+            else:
+                resolved.append(r)
+        return resolved
+
+    def _apply_window_resolution(self, results: list[Result]) -> list[Result]:
+        resolved: list[Result] = []
+        for r in results:
+            if "window_context" in r.payload:
+                new_payload = {**r.payload, "content": r.payload["window_context"]}
                 resolved.append(replace(r, payload=new_payload))
             else:
                 resolved.append(r)

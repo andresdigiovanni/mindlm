@@ -36,9 +36,12 @@ class IngestionConfig(BaseModel):
 
 
 class ChunkingConfig(BaseModel):
-    strategy: Literal["fixed", "semantic", "sliding", "recursive"] = "fixed"
+    strategy: Literal[
+        "fixed", "semantic", "sliding", "recursive", "sentence_window"
+    ] = "fixed"
     chunk_size: int = Field(default=500, gt=0)
     overlap: int = Field(default=50, ge=0)
+    window_size: int = Field(default=2, ge=1)
     semantic_model: str | None = None
     parent_chunk_size: int | None = Field(default=None, gt=0)
     separators: list[str] = Field(default_factory=lambda: ["\n\n", "\n", ". ", " ", ""])
@@ -54,6 +57,10 @@ class ChunkingConfig(BaseModel):
             raise ValueError("parent_chunk_size must be greater than chunk_size")
         if self.strategy == "recursive" and len(self.separators) == 0:
             raise ValueError("separators must not be empty when strategy is recursive")
+        if self.parent_chunk_size is not None and self.strategy == "sentence_window":
+            raise ValueError(
+                "parent_chunk_size cannot be used with strategy='sentence_window'"
+            )
         return self
 
 
@@ -64,8 +71,24 @@ class RetrievalConfig(BaseModel):
 
 class RerankingConfig(BaseModel):
     enabled: bool = False
-    method: Literal["cross_encoder", "mmr"] | None = None
+    method: Literal["cross_encoder", "mmr", "llm", "compression"] | None = None
     model: str | None = None
+
+    @model_validator(mode="after")
+    def _check_config(self) -> "RerankingConfig":
+        if self.enabled and self.method is None:
+            raise ValueError("method is required when reranking is enabled")
+        return self
+
+
+class ContextualRetrievalConfig(BaseModel):
+    enabled: bool = False
+    prompt_template: str = (
+        "Here is the full document:\n<document>\n{document}\n</document>\n\n"
+        "Here is a chunk from the document:\n<chunk>\n{chunk}\n</chunk>\n\n"
+        "Provide a brief, one-sentence context that situates this chunk within the "
+        "overall document. Answer only with the context sentence, no additional text."
+    )
 
 
 class QueryRewritingConfig(BaseModel):
@@ -119,6 +142,9 @@ class RAGConfig(BaseModel):
     chunking: ChunkingConfig = ChunkingConfig()
     retrieval: RetrievalConfig = RetrievalConfig()
     reranking: RerankingConfig = RerankingConfig()
+    contextual_retrieval: ContextualRetrievalConfig = Field(
+        default_factory=ContextualRetrievalConfig
+    )
     query_processing: QueryProcessingConfig = QueryProcessingConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
 

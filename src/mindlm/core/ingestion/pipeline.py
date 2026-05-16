@@ -1,15 +1,18 @@
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from fastembed.sparse.bm25 import Bm25
+from langfuse.decorators import langfuse_context, observe
 
 from mindlm.core.chunking.dispatcher import ChunkerDispatcher
 from mindlm.core.chunking.strategies.fixed import FixedChunker
 from mindlm.core.config.models import ChunkingConfig, RAGConfig
 from mindlm.core.embeddings.base import EmbeddingProvider
+from mindlm.core.ingestion.contextualizer import Contextualizer
 from mindlm.core.models import Chunk, Point, SparseVector
 from mindlm.core.parsing.dispatcher import ParserDispatcher
 from mindlm.core.vectorstore.base import VectorStore
@@ -23,15 +26,23 @@ class IngestionPipeline:
         chunker: ChunkerDispatcher,
         embedding_provider: EmbeddingProvider,
         vectorstore: VectorStore,
+        contextualizer: Contextualizer | None = None,
     ) -> None:
         self._config = config
         self._parser = parser
         self._chunker = chunker
         self._embedding_provider = embedding_provider
         self._vectorstore = vectorstore
+        self._contextualizer = contextualizer
         self._bm25: Bm25 | None = None
 
+    @observe(name="ingest")
     def ingest(self, path: Path) -> int:
+        self._check_allowed_path(path)
+        langfuse_context.update_current_observation(
+            input=str(path),
+            metadata={"strategy": self._config.chunking.strategy},
+        )
         text = self._parser.parse(path)
         document_hash = self._calculate_hash(path)
         if self._config.ingestion.deduplication and self._is_duplicate(document_hash):
@@ -42,6 +53,7 @@ class IngestionPipeline:
         chunks = self._chunker.chunk(text)
         if not chunks:
             return 0
+        chunks = self._contextualize_chunks(text, chunks)
         vectors = self._embedding_provider.embed([c.text for c in chunks])
         use_sparse = self._config.retrieval.strategy == "hybrid"
         points = [
@@ -81,6 +93,7 @@ class IngestionPipeline:
             child_chunks = self._chunker.chunk(parent_chunk.text)
             if not child_chunks:
                 continue
+            child_chunks = self._contextualize_chunks(parent_chunk.text, child_chunks)
             child_texts = [c.text for c in child_chunks]
             child_vectors = self._embedding_provider.embed(child_texts)
             for i, child in enumerate(child_chunks):
@@ -97,6 +110,24 @@ class IngestionPipeline:
             self._vectorstore.upsert(all_points)
         return len(all_points)
 
+    def _contextualize_chunks(
+        self, document_text: str, chunks: list[Chunk]
+    ) -> list[Chunk]:
+        if self._contextualizer is None:
+            return chunks
+        return [
+            replace(c, text=self._contextualizer.contextualize(document_text, c.text))
+            for c in chunks
+        ]
+
+    def _check_allowed_path(self, path: Path) -> None:
+        allowed = Path(self._config.ingestion.allowed_base_dir).resolve()
+        resolved = path.resolve()
+        if not resolved.is_relative_to(allowed):
+            raise ValueError(
+                f"Path {path!r} is outside the allowed base directory {allowed!r}"
+            )
+
     def _calculate_hash(self, path: Path) -> str:
         return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
@@ -104,7 +135,7 @@ class IngestionPipeline:
         self, path: Path, chunk: Chunk, total: int, document_hash: str
     ) -> dict[str, Any]:
         stat = path.stat()
-        return {
+        payload = {
             "content": chunk.text,
             "source": str(path),
             "document_hash": document_hash,
@@ -114,6 +145,9 @@ class IngestionPipeline:
             "total_chunks": total,
             "ingested_at": datetime.now(tz=UTC).isoformat(),
         }
+        if "window_context" in chunk.metadata:
+            payload["window_context"] = chunk.metadata["window_context"]
+        return payload
 
     def _make_point(
         self,

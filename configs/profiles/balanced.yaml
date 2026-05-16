@@ -38,6 +38,7 @@ chunking:
   chunk_size: 500
   overlap: 50
   separators: ["\n\n", "\n", ". ", " ", ""]
+  # window_size: 2  # used only when strategy: sentence_window
 
 # ── Retrieval Pipeline ──────────────────────────────────────
 
@@ -49,6 +50,12 @@ reranking:
   enabled: true
   method: cross_encoder
   model: cross-encoder/ms-marco-MiniLM-L-6-v2
+
+# ── Contextual Retrieval (opt-in) ───────────────────────────
+# Prepends an LLM-generated context sentence to each chunk at ingest time.
+# Improves retrieval quality at the cost of one LLM call per chunk.
+# contextual_retrieval:
+#   enabled: false
 
 # ── Query Processing Pipeline ───────────────────────────────
 # Only query rewriting is enabled — a lightweight improvement with minimal overhead.

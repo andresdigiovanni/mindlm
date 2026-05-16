@@ -7,6 +7,7 @@ from mindlm.core.config.loader import load_config
 from mindlm.core.config.models import RAGConfig
 from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
 from mindlm.core.generation.ollama import OllamaProvider
+from mindlm.core.ingestion.contextualizer import Contextualizer
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
 from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
@@ -43,7 +44,10 @@ def get_retriever() -> Retriever:
         get_embedding_provider(),
         llm=get_llm_provider(),
         query_processor=get_query_processor(),
+        # These two flags are mutually exclusive; ChunkingConfig._check_config
+        # prevents parent_chunk_size + strategy='sentence_window' at config load time.
         resolve_parents=config.chunking.parent_chunk_size is not None,
+        resolve_windows=config.chunking.strategy == "sentence_window",
     )
 
 
@@ -54,7 +58,16 @@ def get_query_processor() -> QueryProcessorDispatcher:
 
 def get_reranker() -> RerankerDispatcher:
     config = get_config()
-    return RerankerDispatcher(config.reranking, get_embedding_provider())
+    return RerankerDispatcher(
+        config.reranking, get_embedding_provider(), llm=get_llm_provider()
+    )
+
+
+def get_contextualizer() -> Contextualizer | None:
+    config = get_config()
+    if not config.contextual_retrieval.enabled:
+        return None
+    return Contextualizer(config.contextual_retrieval, get_llm_provider())
 
 
 def get_pipeline() -> IngestionPipeline:
@@ -62,7 +75,12 @@ def get_pipeline() -> IngestionPipeline:
     parser = ParserDispatcher(config.ingestion)
     chunker = ChunkerDispatcher(config.chunking, get_embedding_provider())
     return IngestionPipeline(
-        config, parser, chunker, get_embedding_provider(), get_vectorstore()
+        config,
+        parser,
+        chunker,
+        get_embedding_provider(),
+        get_vectorstore(),
+        contextualizer=get_contextualizer(),
     )
 
 
