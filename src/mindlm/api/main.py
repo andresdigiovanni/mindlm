@@ -21,21 +21,25 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     obs = get_config().observability
-    langfuse_context.configure(
-        public_key=obs.public_key,
-        secret_key=obs.secret_key,
-        host=obs.host,
-        flush_at=obs.flush_at,
-        flush_interval=obs.flush_interval,
-    )
-    logger.info("Langfuse observability configured (host: %s).", obs.host)
+    if obs.enabled:
+        langfuse_context.configure(
+            public_key=obs.public_key,
+            secret_key=obs.secret_key,
+            host=obs.host,
+            flush_at=obs.flush_at,
+            flush_interval=obs.flush_interval,
+        )
+        logger.info("Langfuse observability configured (host: %s).", obs.host)
+    else:
+        logger.info("Langfuse observability disabled.")
     logger.info("Pre-warming embedding model...")
     get_embedding_provider()
     logger.info("Embedding model ready.")
     logger.info("Ensuring Ollama model is available...")
     get_llm_provider().ensure_model()
     yield
-    langfuse_context.flush()
+    if obs.enabled:
+        langfuse_context.flush()
 
 
 app = FastAPI(title="MindLM RAG API", version="0.1.0", lifespan=lifespan)

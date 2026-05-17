@@ -46,6 +46,25 @@ class TestChunkingConfigValidator:
 
         assert config.parent_chunk_size is None
 
+    def test_sliding_strategy_raises_when_overlap_equals_chunk_size(self) -> None:
+        with pytest.raises(ValueError, match="overlap must be less than chunk_size"):
+            ChunkingConfig(strategy="sliding", chunk_size=100, overlap=100)
+
+    def test_sliding_strategy_raises_when_overlap_exceeds_chunk_size(self) -> None:
+        with pytest.raises(ValueError, match="overlap must be less than chunk_size"):
+            ChunkingConfig(strategy="sliding", chunk_size=100, overlap=150)
+
+    def test_sliding_strategy_valid_when_overlap_less_than_chunk_size(self) -> None:
+        config = ChunkingConfig(strategy="sliding", chunk_size=100, overlap=50)
+
+        assert config.overlap == 50
+
+    def test_non_sliding_strategy_allows_overlap_equal_to_chunk_size(self) -> None:
+        # For non-sliding strategies, overlap == chunk_size is allowed at config level
+        config = ChunkingConfig(strategy="fixed", chunk_size=100, overlap=100)
+
+        assert config.overlap == 100
+
     def test_parent_chunk_size_greater_than_chunk_size_is_valid(self) -> None:
         config = ChunkingConfig(
             strategy="fixed", chunk_size=500, overlap=0, parent_chunk_size=1000

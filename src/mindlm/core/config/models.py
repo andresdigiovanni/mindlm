@@ -61,6 +61,10 @@ class ChunkingConfig(BaseModel):
             raise ValueError(
                 "parent_chunk_size cannot be used with strategy='sentence_window'"
             )
+        if self.strategy == "sliding" and self.overlap >= self.chunk_size:
+            raise ValueError(
+                "overlap must be less than chunk_size when strategy is sliding"
+            )
         return self
 
 
@@ -127,11 +131,25 @@ class QueryProcessingConfig(BaseModel):
 
 
 class ObservabilityConfig(BaseModel):
+    enabled: bool = True
     public_key: str = "pk-lf-local-dev"
     secret_key: str = "sk-lf-local-dev"  # noqa: S105
     host: str = "http://langfuse:3000"
     flush_at: int = Field(default=15, gt=0)
     flush_interval: float = Field(default=0.5, gt=0)
+
+
+class GraphStoreConfig(BaseModel):
+    provider: Literal["neo4j"] = "neo4j"
+    host: str = "neo4j"
+    port: int = 7687
+    username: str = "neo4j"
+    password: str = "neo4j_password"  # noqa: S105
+
+
+class GraphRAGConfig(BaseModel):
+    enabled: bool = False
+    store: GraphStoreConfig = GraphStoreConfig()
 
 
 class RAGConfig(BaseModel):
@@ -147,6 +165,7 @@ class RAGConfig(BaseModel):
     )
     query_processing: QueryProcessingConfig = QueryProcessingConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
+    graph_rag: GraphRAGConfig = GraphRAGConfig()
 
     @model_validator(mode="after")
     def _check_semantic_model_consistency(self) -> "RAGConfig":

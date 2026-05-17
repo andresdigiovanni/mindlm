@@ -7,6 +7,7 @@ from langfuse.decorators import langfuse_context, observe
 from mindlm.core.config.models import RetrievalConfig
 from mindlm.core.embeddings.base import EmbeddingProvider
 from mindlm.core.generation.base import LLMProvider
+from mindlm.core.graph.base import GraphStore
 from mindlm.core.models import Result, SparseVector
 from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
 from mindlm.core.vectorstore.base import VectorStore
@@ -22,6 +23,7 @@ class Retriever:
         query_processor: QueryProcessorDispatcher | None = None,
         resolve_parents: bool = False,
         resolve_windows: bool = False,
+        graph_store: GraphStore | None = None,
     ) -> None:
         if query_processor is not None and llm is None:
             raise ValueError("llm is required when query_processor is provided")
@@ -37,6 +39,7 @@ class Retriever:
         self._query_processor = query_processor
         self._resolve_parents = resolve_parents
         self._resolve_windows = resolve_windows
+        self._graph_store = graph_store
         self._bm25: Bm25 | None = None
 
     @observe(name="retrieve")
@@ -66,6 +69,8 @@ class Retriever:
             results = self._apply_parent_resolution(results)
         if self._resolve_windows:
             results = self._apply_window_resolution(results)
+        if self._graph_store is not None:
+            results = self._expand_with_graph(results)
         return results
 
     def _retrieve_single(
@@ -84,6 +89,28 @@ class Retriever:
                 raise ValueError(
                     f"Unknown retrieval strategy: {self._config.strategy!r}"
                 )
+
+    def _expand_with_graph(self, results: list[Result]) -> list[Result]:
+        chunk_ids = [r.id for r in results]
+        related_ids = self._graph_store.get_related_chunk_ids(  # type: ignore[union-attr]
+            chunk_ids, depth=1
+        )
+        existing_ids: set[str] = set(chunk_ids)
+        min_score = min((r.score for r in results), default=0.0)
+        expansion_score = 0.5 * min_score
+        expanded: list[Result] = list(results)
+        for related_id in related_ids:
+            if related_id in existing_ids:
+                continue
+            point = self._vectorstore.get_by_id(related_id)
+            if point is None:
+                continue
+            expanded.append(
+                Result(id=point.id, score=expansion_score, payload=point.payload)
+            )
+            existing_ids.add(related_id)
+        expanded.sort(key=lambda r: r.score, reverse=True)
+        return expanded[: self._config.top_k]
 
     def _apply_parent_resolution(self, results: list[Result]) -> list[Result]:
         resolved = []

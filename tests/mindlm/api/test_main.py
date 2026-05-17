@@ -75,3 +75,39 @@ class TestLifespanLangfuseInit:
             with TestClient(app):
                 pass
             mock_ctx.flush.assert_called_once()
+
+
+class TestLifespanLangfuseDisabled:
+    def test_langfuse_disabled_configure_not_called(self) -> None:
+        # Arrange
+        config = _make_config(enabled=False)
+
+        with (
+            patch("mindlm.api.main.get_config", return_value=config),
+            patch("mindlm.api.main.get_embedding_provider", return_value=MagicMock()),
+            patch("mindlm.api.main.get_llm_provider", return_value=MagicMock()),
+            patch("mindlm.api.main.langfuse_context") as mock_ctx,
+        ):
+            # Act
+            with TestClient(app):
+                pass
+
+            # Assert — configure never called
+            mock_ctx.configure.assert_not_called()
+
+    def test_langfuse_disabled_flush_not_called(self) -> None:
+        # Arrange
+        config = _make_config(enabled=False)
+
+        with (
+            patch("mindlm.api.main.get_config", return_value=config),
+            patch("mindlm.api.main.get_embedding_provider", return_value=MagicMock()),
+            patch("mindlm.api.main.get_llm_provider", return_value=MagicMock()),
+            patch("mindlm.api.main.langfuse_context") as mock_ctx,
+        ):
+            # Act
+            with TestClient(app):
+                pass
+
+            # Assert — flush never called when disabled
+            mock_ctx.flush.assert_not_called()

@@ -7,6 +7,9 @@ from mindlm.core.config.loader import load_config
 from mindlm.core.config.models import RAGConfig
 from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
 from mindlm.core.generation.ollama import OllamaProvider
+from mindlm.core.graph.base import GraphStore
+from mindlm.core.graph.dispatcher import build_graph_store
+from mindlm.core.graph.extractor import EntityExtractor
 from mindlm.core.ingestion.contextualizer import Contextualizer
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
@@ -48,6 +51,7 @@ def get_retriever() -> Retriever:
         # prevents parent_chunk_size + strategy='sentence_window' at config load time.
         resolve_parents=config.chunking.parent_chunk_size is not None,
         resolve_windows=config.chunking.strategy == "sentence_window",
+        graph_store=get_graph_store(),
     )
 
 
@@ -70,6 +74,17 @@ def get_contextualizer() -> Contextualizer | None:
     return Contextualizer(config.contextual_retrieval, get_llm_provider())
 
 
+def get_graph_store() -> GraphStore | None:
+    return build_graph_store(get_config().graph_rag)
+
+
+def get_entity_extractor() -> EntityExtractor | None:
+    config = get_config()
+    if not config.graph_rag.enabled:
+        return None
+    return EntityExtractor(get_llm_provider())
+
+
 def get_pipeline() -> IngestionPipeline:
     config = get_config()
     parser = ParserDispatcher(config.ingestion)
@@ -81,6 +96,8 @@ def get_pipeline() -> IngestionPipeline:
         get_embedding_provider(),
         get_vectorstore(),
         contextualizer=get_contextualizer(),
+        entity_extractor=get_entity_extractor(),
+        graph_store=get_graph_store(),
     )
 
 

@@ -22,6 +22,8 @@ dependencies = [
     "lxml>=5.3",
     "surya-ocr>=0.7",
     "langfuse>=2.0,<3",
+    "neo4j>=5.0",
+    "networkx>=3.4",
 ]
 authors = [
     {name = "Andres Di Giovanni", email = "andresdigiovanni@gmail.com"}

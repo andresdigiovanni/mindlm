@@ -421,6 +421,96 @@ class TestIngestionPipelineContextualizer:
         vs.upsert.assert_not_called()
 
 
+class TestIngestionPipelineGraphExtraction:
+    def _make_pipeline_with_graph(
+        self,
+        entity_extractor: MagicMock | None = None,
+        graph_store: MagicMock | None = None,
+    ) -> tuple[IngestionPipeline, MagicMock]:
+        cfg = _make_rag_config()
+        parser = MagicMock()
+        chunker = MagicMock()
+        embedding_provider = MagicMock()
+        vectorstore = MagicMock()
+
+        parser.parse.return_value = "some text"
+        chunker.chunk.return_value = [
+            Chunk(text="chunk 1", index=0, metadata={}),
+        ]
+        embedding_provider.embed.return_value = [[0.1] * 4]
+        vectorstore.scroll.return_value = ([], None)
+
+        pipeline = IngestionPipeline(
+            cfg,
+            parser,
+            chunker,
+            embedding_provider,
+            vectorstore,
+            entity_extractor=entity_extractor,
+            graph_store=graph_store,
+        )
+        return pipeline, vectorstore
+
+    def test_ingest_without_extractor_does_not_call_graph_store(
+        self, tmp_path: Path
+    ) -> None:
+        # Arrange
+        graph_store = MagicMock()
+        pipeline, _vs = self._make_pipeline_with_graph(
+            entity_extractor=None, graph_store=None
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert
+        graph_store.upsert_entities.assert_not_called()
+
+    def test_ingest_with_extractor_calls_upsert_entities(self, tmp_path: Path) -> None:
+        # Arrange
+        from mindlm.core.models import Entity
+
+        entity_extractor = MagicMock()
+        graph_store = MagicMock()
+        mock_entity = Entity(
+            id="e1", name="X", type="ORG", description="x", source_id="c1"
+        )
+        entity_extractor.extract.return_value = ([mock_entity], [])
+
+        pipeline, _vs = self._make_pipeline_with_graph(
+            entity_extractor=entity_extractor, graph_store=graph_store
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert
+        graph_store.upsert_entities.assert_called_once()
+        entities_arg = graph_store.upsert_entities.call_args[0][0]
+        assert mock_entity in entities_arg
+
+    def test_extractor_without_graph_store_raises(self) -> None:
+        # Arrange
+        cfg = _make_rag_config()
+        entity_extractor = MagicMock()
+
+        # Act / Assert
+        with pytest.raises(ValueError, match="graph_store is required"):
+            IngestionPipeline(
+                cfg,
+                MagicMock(),
+                MagicMock(),
+                MagicMock(),
+                MagicMock(),
+                entity_extractor=entity_extractor,
+                graph_store=None,
+            )
+
+
 class TestIngestionPipelineDeduplication:
     def _make_dedup_pipeline(
         self, deduplication: bool

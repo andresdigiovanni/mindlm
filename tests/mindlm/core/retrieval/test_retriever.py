@@ -293,3 +293,112 @@ class TestRetrieverWindowResolution:
         retriever = self._make_retriever_with_results([], resolve_windows=True)
         output = retriever.retrieve("q")
         assert output == []
+
+
+class TestRetrieverGraphExpansion:
+    def _make_retriever_with_graph(
+        self,
+        results: list[Result],
+        graph_store: MagicMock | None = None,
+        top_k: int = 5,
+    ) -> tuple[Retriever, MagicMock]:
+        config = RetrievalConfig(strategy="vector", top_k=top_k)
+        vectorstore = MagicMock()
+        vectorstore.search.return_value = results
+        ep = MagicMock()
+        ep.embed.return_value = [[0.1] * 10]
+        retriever = Retriever(config, vectorstore, ep, graph_store=graph_store)
+        return retriever, vectorstore
+
+    def test_no_graph_store_passthrough(self) -> None:
+        # Arrange
+        results = [Result(id="1", score=0.9, payload={"content": "a"})]
+        retriever, _vs = self._make_retriever_with_graph(results, graph_store=None)
+
+        # Act
+        output = retriever.retrieve("q")
+
+        # Assert — results unchanged
+        assert len(output) == 1
+        assert output[0].id == "1"
+
+    def test_expand_adds_related_chunk(self) -> None:
+        # Arrange
+        from mindlm.core.models import Point
+
+        graph_store = MagicMock()
+        graph_store.get_related_chunk_ids.return_value = ["1", "2"]  # "2" is new
+        related_point = Point(id="2", vector=[], payload={"content": "related"})
+
+        results = [Result(id="1", score=0.8, payload={})]
+        retriever, vs = self._make_retriever_with_graph(
+            results, graph_store=graph_store
+        )
+        vs.get_by_id.return_value = related_point
+
+        # Act
+        output = retriever.retrieve("q")
+
+        # Assert — related chunk appended with halved score
+        ids = {r.id for r in output}
+        assert "1" in ids
+        assert "2" in ids
+        related = next(r for r in output if r.id == "2")
+        assert related.score == pytest.approx(0.4)
+
+    def test_expand_no_duplicates(self) -> None:
+        # Arrange
+        graph_store = MagicMock()
+        # related IDs are all already in results
+        graph_store.get_related_chunk_ids.return_value = ["1"]
+
+        results = [Result(id="1", score=0.9, payload={})]
+        retriever, _vs = self._make_retriever_with_graph(
+            results, graph_store=graph_store
+        )
+
+        # Act
+        output = retriever.retrieve("q")
+
+        # Assert — no duplicates
+        assert len(output) == 1
+
+    def test_expand_get_by_id_returns_none_skipped(self) -> None:
+        # Arrange
+        graph_store = MagicMock()
+        graph_store.get_related_chunk_ids.return_value = ["1", "missing"]
+
+        results = [Result(id="1", score=0.8, payload={})]
+        retriever, vs = self._make_retriever_with_graph(
+            results, graph_store=graph_store
+        )
+        vs.get_by_id.return_value = None  # not found
+
+        # Act
+        output = retriever.retrieve("q")
+
+        # Assert — "missing" silently skipped
+        assert len(output) == 1
+        assert output[0].id == "1"
+
+    def test_expand_respects_top_k(self) -> None:
+        # Arrange
+        from mindlm.core.models import Point
+
+        graph_store = MagicMock()
+        # 3 existing + 5 related = 8 total, top_k=4
+        existing = [
+            Result(id=str(i), score=0.9 - i * 0.1, payload={}) for i in range(3)
+        ]
+        graph_store.get_related_chunk_ids.return_value = [str(i) for i in range(3, 8)]
+
+        retriever, vs = self._make_retriever_with_graph(
+            existing, graph_store=graph_store, top_k=4
+        )
+        vs.get_by_id.side_effect = lambda id_: Point(id=id_, vector=[], payload={})
+
+        # Act
+        output = retriever.retrieve("q")
+
+        # Assert
+        assert len(output) == 4
