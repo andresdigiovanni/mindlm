@@ -57,10 +57,13 @@ reranking:
   # method: compression  # Contextual compression - extracts relevant parts only
 
 # ── Contextual Retrieval (opt-in) ───────────────────────────
-# Prepends an LLM-generated context sentence to each chunk at ingest time.
-# Improves retrieval quality at the cost of one LLM call per chunk.
-# contextual_retrieval:
-#   enabled: false
+# Stores LLM-generated metadata at ingest time. Raw chunk text is always embedded
+# unchanged; context and summary appear in search result metadata only.
+# chunk_context_enabled: 1 LLM call per chunk → payload["chunk_context"]
+# document_summary_enabled: 1 LLM call per document → payload["document_summary"]
+contextual_retrieval:
+  chunk_context_enabled: true
+  document_summary_enabled: true
 
 # ── Query Processing Pipeline ───────────────────────────────
 # All processors enabled — each generates additional query variants

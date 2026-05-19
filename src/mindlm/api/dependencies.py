@@ -69,9 +69,10 @@ def get_reranker() -> RerankerDispatcher:
 
 def get_contextualizer() -> Contextualizer | None:
     config = get_config()
-    if not config.contextual_retrieval.enabled:
+    cr = config.contextual_retrieval
+    if not (cr.chunk_context_enabled or cr.document_summary_enabled):
         return None
-    return Contextualizer(config.contextual_retrieval, get_llm_provider())
+    return Contextualizer(cr, get_llm_provider())
 
 
 def get_graph_store() -> GraphStore | None:

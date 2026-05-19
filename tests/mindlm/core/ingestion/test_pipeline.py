@@ -336,7 +336,8 @@ class TestIngestionPipelineContextualizer:
 
     def test_contextualizer_called_once_per_chunk(self, tmp_path: Path) -> None:
         ctx = MagicMock()
-        ctx.contextualize.return_value = "ctx chunk"
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
         pipeline, _p, _c, _ep, _vs = self._make_pipeline_with_contextualizer(
             contextualizer=ctx
         )
@@ -347,9 +348,10 @@ class TestIngestionPipelineContextualizer:
 
         assert ctx.contextualize.call_count == 2
 
-    def test_contextualizer_output_used_for_embedding(self, tmp_path: Path) -> None:
+    def test_raw_chunk_text_used_for_embedding(self, tmp_path: Path) -> None:
         ctx = MagicMock()
-        ctx.contextualize.return_value = "contextualized text"
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
         pipeline, _p, _c, ep, _vs = self._make_pipeline_with_contextualizer(
             contextualizer=ctx
         )
@@ -359,7 +361,7 @@ class TestIngestionPipelineContextualizer:
         pipeline.ingest(doc)
 
         texts_embedded = ep.embed.call_args[0][0]
-        assert all(t == "contextualized text" for t in texts_embedded)
+        assert texts_embedded == ["chunk 1", "chunk 2"]
 
     def test_contextualizer_none_does_not_change_chunks(self, tmp_path: Path) -> None:
         pipeline, _p, _c, ep, _vs = self._make_pipeline_with_contextualizer(
@@ -419,6 +421,112 @@ class TestIngestionPipelineContextualizer:
 
         assert result == 0
         vs.upsert.assert_not_called()
+
+    def test_chunk_context_written_to_payload(self, tmp_path: Path) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all(p.payload["chunk_context"] == "Context sentence." for p in points)
+
+    def test_chunk_context_absent_when_contextualizer_none(
+        self, tmp_path: Path
+    ) -> None:
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            contextualizer=None
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all("chunk_context" not in p.payload for p in points)
+
+    def test_document_summary_written_to_all_chunk_payloads(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all(p.payload["document_summary"] == "Doc summary." for p in points)
+
+    def test_document_summary_absent_when_contextualizer_none(
+        self, tmp_path: Path
+    ) -> None:
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            contextualizer=None
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all("document_summary" not in p.payload for p in points)
+
+    def test_summarize_called_once_per_ingest(self, tmp_path: Path) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
+        pipeline, _p, _c, _ep, _vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        assert ctx.summarize.call_count == 1
+
+    def test_empty_context_not_written_to_payload(self, tmp_path: Path) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = ""
+        ctx.summarize.return_value = "Doc summary."
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all("chunk_context" not in p.payload for p in points)
+
+    def test_empty_document_summary_not_written_to_payload(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = ""
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all("document_summary" not in p.payload for p in points)
 
 
 class TestIngestionPipelineGraphExtraction:
@@ -605,3 +713,120 @@ class TestIngestionPipelineDeduplication:
         call_args = vs.scroll.call_args
         filters = call_args.kwargs.get("filters") or call_args.args[0]
         assert "document_hash" in filters
+
+
+class TestIngestionPipelineParentDocContextualizer:
+    def _make_parent_pipeline_with_contextualizer(
+        self,
+        contextualizer: MagicMock | None = None,
+        parent_chunk_size: int = 500,
+    ) -> tuple[IngestionPipeline, MagicMock, MagicMock, MagicMock, MagicMock]:
+        cfg = _make_rag_config(strategy="vector", parent_chunk_size=parent_chunk_size)
+        parser = MagicMock()
+        chunker = MagicMock()
+        embedding_provider = MagicMock()
+        vectorstore = MagicMock()
+
+        parser.parse.return_value = "parent text content here for testing"
+        chunker.chunk.return_value = [
+            Chunk(text="child 1", index=0, metadata={}),
+            Chunk(text="child 2", index=1, metadata={}),
+        ]
+        embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
+        vectorstore.scroll.return_value = ([], None)
+
+        pipeline = IngestionPipeline(
+            cfg,
+            parser,
+            chunker,
+            embedding_provider,
+            vectorstore,
+            contextualizer=contextualizer,
+        )
+        return pipeline, parser, chunker, embedding_provider, vectorstore
+
+    def test_parent_doc_chunk_context_written_to_payload(self, tmp_path: Path) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
+        pipeline, _p, _c, _ep, vs = self._make_parent_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("x" * 30, encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all("chunk_context" in p.payload for p in points)
+        assert all(p.payload["chunk_context"] == "Context sentence." for p in points)
+
+    def test_parent_doc_document_summary_written_to_all_children(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
+        pipeline, _p, _c, _ep, vs = self._make_parent_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("x" * 30, encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all(p.payload["document_summary"] == "Doc summary." for p in points)
+
+    def test_parent_doc_summarize_called_once_not_per_parent_chunk(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
+        pipeline, parser, _c, _ep, _vs = self._make_parent_pipeline_with_contextualizer(
+            contextualizer=ctx, parent_chunk_size=200
+        )
+        # Two parent chunks worth of text
+        parser.parse.return_value = "a" * 400
+        doc = tmp_path / "doc.md"
+        doc.write_text("a" * 400, encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        assert ctx.summarize.call_count == 1
+
+    def test_parent_doc_contextualize_called_with_full_document_text(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = "Doc summary."
+        full_text = "parent text content here for testing"
+        pipeline, _p, _c, _ep, _vs = self._make_parent_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("x" * 30, encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        for call in ctx.contextualize.call_args_list:
+            assert call.args[0] == full_text
+
+    def test_parent_doc_empty_document_summary_not_written_to_payload(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = MagicMock()
+        ctx.contextualize.return_value = "Context sentence."
+        ctx.summarize.return_value = ""
+        pipeline, _p, _c, _ep, vs = self._make_parent_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("x" * 30, encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert all("document_summary" not in p.payload for p in points)

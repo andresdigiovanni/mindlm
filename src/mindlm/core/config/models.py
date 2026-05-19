@@ -86,12 +86,18 @@ class RerankingConfig(BaseModel):
 
 
 class ContextualRetrievalConfig(BaseModel):
-    enabled: bool = False
+    chunk_context_enabled: bool = False
+    document_summary_enabled: bool = False
     prompt_template: str = (
         "Here is the full document:\n<document>\n{document}\n</document>\n\n"
         "Here is a chunk from the document:\n<chunk>\n{chunk}\n</chunk>\n\n"
         "Provide a brief, one-sentence context that situates this chunk within the "
         "overall document. Answer only with the context sentence, no additional text."
+    )
+    document_summary_prompt_template: str = (
+        "Here is a document:\n<document>\n{document}\n</document>\n\n"
+        "Provide a single-sentence summary of the document's main topic. "
+        "Answer only with the summary sentence, no additional text."
     )
 
 

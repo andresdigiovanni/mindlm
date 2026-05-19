@@ -3,12 +3,39 @@ from pydantic import ValidationError
 
 from mindlm.core.config.models import (
     ChunkingConfig,
+    ContextualRetrievalConfig,
     MultiQueryConfig,
     ObservabilityConfig,
     QueryDecompositionConfig,
     QueryProcessingConfig,
     RAGConfig,
 )
+
+
+class TestContextualRetrievalConfig:
+    def test_should_have_both_flags_disabled_by_default(self) -> None:
+        config = ContextualRetrievalConfig()
+
+        assert config.chunk_context_enabled is False
+        assert config.document_summary_enabled is False
+
+    def test_should_have_non_empty_prompt_templates_by_default(self) -> None:
+        config = ContextualRetrievalConfig()
+
+        assert config.prompt_template
+        assert config.document_summary_prompt_template
+
+    def test_should_allow_enabling_chunk_context_independently(self) -> None:
+        config = ContextualRetrievalConfig(chunk_context_enabled=True)
+
+        assert config.chunk_context_enabled is True
+        assert config.document_summary_enabled is False
+
+    def test_should_allow_enabling_document_summary_independently(self) -> None:
+        config = ContextualRetrievalConfig(document_summary_enabled=True)
+
+        assert config.chunk_context_enabled is False
+        assert config.document_summary_enabled is True
 
 
 class TestChunkingConfigValidator:

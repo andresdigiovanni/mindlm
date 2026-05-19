@@ -17,10 +17,16 @@ from mindlm.core.retrieval.retriever import Retriever
 
 
 def _format_context(results: list[Result]) -> str:
-    return "\n\n".join(
-        f"[Source: {r.payload.get('source', '')}]\n{r.payload.get('content', '')}"
-        for r in results
-    )
+    blocks = []
+    for r in results:
+        parts = []
+        if summary := r.payload.get("document_summary"):
+            parts.append(f"[Document context: {summary}]")
+        if ctx := r.payload.get("chunk_context"):
+            parts.append(f"[Chunk context: {ctx}]")
+        parts.append(r.payload.get("content", ""))
+        blocks.append(f"[Source: {r.payload.get('source', '')}]\n" + "\n".join(parts))
+    return "\n\n".join(blocks)
 
 
 def _extract_sources(results: list[Result]) -> list[SourceRef]:

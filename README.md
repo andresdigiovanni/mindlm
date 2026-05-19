@@ -11,7 +11,7 @@ A local, configurable RAG (Retrieval-Augmented Generation) platform built for pr
 - **Qdrant vector store** — multi-tenant via named collections; supports vector and hybrid BM25 (RRF) retrieval
 - **Document ingestion** — PDF, HTML, Markdown, DOCX, PPTX, PNG, JPEG; raw, structured, and OCR (Surya) parsing strategies
 - **Incremental sync** — detects changes via Qdrant payload hashes; full reingestion also supported
-- **Contextual Retrieval** — at ingest time, the LLM generates a one-sentence context for each chunk describing how it fits within the full document; prepended to the chunk text before embedding to improve retrieval precision
+- **Contextual Retrieval** — at ingest time, the LLM generates a one-sentence context per chunk (stored as `chunk_context` metadata) and a one-sentence document summary (stored as `document_summary` metadata, one LLM call per document); raw chunk text is embedded unchanged; both fields appear in search result `metadata`
 - **Reranking** — cross-encoder, MMR, LLM-as-reranker, or contextual compression; configurable and optional
 - **Query processing** — 6 configurable pre-retrieval techniques (rewriting, expansion, HyDE, multi-query, decomposition, step-back) that improve recall; combinable
 - **REST API** — FastAPI with 6 endpoints (health, collections, ingest/sync, ingest/full, search, ask)
@@ -327,14 +327,19 @@ Self-hosted Langfuse runs as an optional Docker Compose profile — see [Quick S
 
 ### Contextual Retrieval
 
-When `contextual_retrieval.enabled: true`, the ingestion pipeline calls the configured LLM once per chunk during indexing. The LLM generates a one-sentence description of how the chunk relates to the full document; this context is prepended to the chunk text before embedding. This improves recall for chunks that are too short or too terse to retrieve well on their own.
+When `contextual_retrieval.enabled: true`, the ingestion pipeline enriches each chunk with two metadata fields:
+
+- **`chunk_context`** — a one-sentence description of how the chunk relates to the full document (one LLM call per chunk)
+- **`document_summary`** — a one-sentence summary of the full document (one LLM call per document, shared across all its chunks)
+
+The raw chunk text is embedded unchanged; both fields are written to the Qdrant payload and appear automatically in the `metadata` dict of search results. This improves recall for chunks that are too short or too terse to retrieve well on their own.
 
 ```yaml
 contextual_retrieval:
   enabled: true
 ```
 
-Contextual retrieval adds one LLM call per chunk at ingest time. For large corpora, prefer batch ingestion (`/ingest/full`) and a fast local model.
+Contextual retrieval adds one LLM call per chunk plus one LLM call per document at ingest time. For large corpora, prefer batch ingestion (`/ingest/full`) and a fast local model.
 
 ### Query processing techniques
 

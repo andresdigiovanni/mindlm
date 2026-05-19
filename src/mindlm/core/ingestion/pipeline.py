@@ -1,5 +1,4 @@
 import hashlib
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -63,7 +62,10 @@ class IngestionPipeline:
         chunks = self._chunker.chunk(text)
         if not chunks:
             return 0
-        chunks = self._contextualize_chunks(text, chunks)
+        document_summary = (
+            self._contextualizer.summarize(text) if self._contextualizer else None
+        )
+        contexts = self._get_chunk_contexts(text, chunks)
         point_ids = [str(uuid4()) for _ in chunks]
         self._extract_and_store_entities(list(zip(chunks, point_ids, strict=True)))
         vectors = self._embedding_provider.embed([c.text for c in chunks])
@@ -73,7 +75,14 @@ class IngestionPipeline:
                 chunks[i],
                 vectors[i],
                 use_sparse,
-                self._build_payload(path, chunks[i], len(chunks), document_hash),
+                self._build_payload(
+                    path,
+                    chunks[i],
+                    len(chunks),
+                    document_hash,
+                    chunk_context=contexts[i] if contexts else None,
+                    document_summary=document_summary,
+                ),
                 point_ids[i],
             )
             for i in range(len(chunks))
@@ -100,13 +109,16 @@ class IngestionPipeline:
 
         all_points: list[Point] = []
         use_sparse = self._config.retrieval.strategy == "hybrid"
+        document_summary = (
+            self._contextualizer.summarize(text) if self._contextualizer else None
+        )
 
         for parent_chunk in parent_chunks:
             parent_id = str(uuid4())
             child_chunks = self._chunker.chunk(parent_chunk.text)
             if not child_chunks:
                 continue
-            child_chunks = self._contextualize_chunks(parent_chunk.text, child_chunks)
+            contexts = self._get_chunk_contexts(text, child_chunks)
             child_point_ids = [str(uuid4()) for _ in child_chunks]
             self._extract_and_store_entities(
                 list(zip(child_chunks, child_point_ids, strict=True))
@@ -115,7 +127,12 @@ class IngestionPipeline:
             child_vectors = self._embedding_provider.embed(child_texts)
             for i, child in enumerate(child_chunks):
                 payload = self._build_payload(
-                    path, child, len(child_chunks), document_hash
+                    path,
+                    child,
+                    len(child_chunks),
+                    document_hash,
+                    chunk_context=contexts[i] if contexts else None,
+                    document_summary=document_summary,
                 )
                 payload["parent_id"] = parent_id
                 payload["parent_content"] = parent_chunk.text
@@ -147,14 +164,14 @@ class IngestionPipeline:
         if all_relationships:
             self._graph_store.upsert_relationships(all_relationships)
 
-    def _contextualize_chunks(
-        self, document_text: str, chunks: list[Chunk]
-    ) -> list[Chunk]:
-        if self._contextualizer is None:
-            return chunks
+    def _get_chunk_contexts(self, document_text: str, chunks: list[Chunk]) -> list[str]:
+        if (
+            self._contextualizer is None
+            or not self._contextualizer.chunk_context_enabled
+        ):
+            return []
         return [
-            replace(c, text=self._contextualizer.contextualize(document_text, c.text))
-            for c in chunks
+            self._contextualizer.contextualize(document_text, c.text) for c in chunks
         ]
 
     def _check_allowed_path(self, path: Path) -> None:
@@ -169,7 +186,13 @@ class IngestionPipeline:
         return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
     def _build_payload(
-        self, path: Path, chunk: Chunk, total: int, document_hash: str
+        self,
+        path: Path,
+        chunk: Chunk,
+        total: int,
+        document_hash: str,
+        chunk_context: str | None = None,
+        document_summary: str | None = None,
     ) -> dict[str, Any]:
         stat = path.stat()
         payload = {
@@ -184,6 +207,10 @@ class IngestionPipeline:
         }
         if "window_context" in chunk.metadata:
             payload["window_context"] = chunk.metadata["window_context"]
+        if chunk_context:
+            payload["chunk_context"] = chunk_context
+        if document_summary:
+            payload["document_summary"] = document_summary
         return payload
 
     def _make_point(

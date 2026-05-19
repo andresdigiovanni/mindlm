@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 import mindlm.api.dependencies as deps
 from mindlm.api.main import app
+from mindlm.api.routers.search import _format_context
 from mindlm.core.exceptions import LLMUnavailableError
 from mindlm.core.models import Result
 
@@ -16,12 +17,21 @@ def clear_overrides() -> Generator[None, None, None]:
     app.dependency_overrides.clear()
 
 
-def _result() -> Result:
-    return Result(
-        id="1",
-        score=0.9,
-        payload={"content": "text", "source": "/doc.pdf", "chunk_index": 0},
-    )
+def _result(
+    *,
+    chunk_context: str | None = None,
+    document_summary: str | None = None,
+) -> Result:
+    payload: dict[str, object] = {
+        "content": "text",
+        "source": "/doc.pdf",
+        "chunk_index": 0,
+    }
+    if chunk_context is not None:
+        payload["chunk_context"] = chunk_context
+    if document_summary is not None:
+        payload["document_summary"] = document_summary
+    return Result(id="1", score=0.9, payload=payload)
 
 
 class TestSearchEndpoint:
@@ -73,3 +83,37 @@ class TestSearchEndpoint:
 
         assert response.status_code == 503
         assert response.json()["error"] == "llm_unavailable"
+
+
+class TestFormatContext:
+    def test_plain_chunk_no_context_fields(self) -> None:
+        result = _format_context([_result()])
+        assert "[Source: /doc.pdf]" in result
+        assert "text" in result
+        assert "chunk_context" not in result
+        assert "document_summary" not in result
+
+    def test_chunk_context_included_when_present(self) -> None:
+        result = _format_context([_result(chunk_context="This discusses cheese.")])
+        assert "[Chunk context: This discusses cheese.]" in result
+        assert "text" in result
+
+    def test_document_summary_included_when_present(self) -> None:
+        result = _format_context([_result(document_summary="Doc about dairy.")])
+        assert "[Document context: Doc about dairy.]" in result
+        assert "text" in result
+
+    def test_document_summary_appears_before_chunk_context(self) -> None:
+        result = _format_context(
+            [_result(chunk_context="Chunk ctx.", document_summary="Doc summary.")]
+        )
+        assert result.index("[Document context:") < result.index("[Chunk context:")
+
+    def test_chunk_context_appears_before_content(self) -> None:
+        result = _format_context([_result(chunk_context="Chunk ctx.")])
+        assert result.index("[Chunk context:") < result.index("text")
+
+    def test_multiple_results_separated_by_blank_line(self) -> None:
+        results = [_result(), _result()]
+        formatted = _format_context(results)
+        assert "\n\n" in formatted
