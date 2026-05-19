@@ -84,3 +84,44 @@ class TestSentenceWindowChunker:
         chunks = chunker.chunk("no punctuation here")
         assert len(chunks) == 1
         assert chunks[0].text == "no punctuation here"
+
+    def test_first_sentence_start_char_is_zero(self) -> None:
+        chunker = _make_chunker()
+        text = "First sentence. Second sentence."
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[0].start_char == 0
+
+    def test_second_sentence_start_char_matches_position(self) -> None:
+        chunker = _make_chunker()
+        text = "First sentence. Second sentence."
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[1].start_char == text.find("Second sentence.")
+
+    def test_slice_fidelity_all_chunks(self) -> None:
+        chunker = _make_chunker()
+        text = "First sentence. Second sentence. Third sentence."
+
+        chunks = chunker.chunk(text)
+
+        assert all(text[c.start_char : c.end_char] == c.text for c in chunks)
+
+    def test_window_context_metadata_populated(self) -> None:
+        chunker = _make_chunker(window_size=1)
+        text = "A. B. C."
+
+        chunks = chunker.chunk(text)
+
+        assert all("window_context" in c.metadata for c in chunks)
+
+    def test_single_sentence_start_char_zero_end_char(self) -> None:
+        chunker = _make_chunker()
+        text = "Hello world."
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[0].start_char == 0
+        assert chunks[0].end_char == len("Hello world.")

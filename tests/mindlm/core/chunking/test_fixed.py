@@ -48,3 +48,44 @@ class TestFixedChunker:
 
         assert len(chunks) == 1
         assert chunks[0].text == "short text"
+
+    def test_first_chunk_start_end_char(self) -> None:
+        chunker = FixedChunker(_config(size=2))
+        text = "abcde"
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[0].start_char == 0
+        assert chunks[0].end_char == 2
+
+    def test_last_chunk_end_char_equals_text_len(self) -> None:
+        chunker = FixedChunker(_config(size=2))
+        text = "abcde"
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[-1].end_char == len(text)
+
+    def test_slice_fidelity_all_chunks(self) -> None:
+        chunker = FixedChunker(_config(size=3))
+        text = "abcdefghij"
+
+        chunks = chunker.chunk(text)
+
+        assert all(text[c.start_char : c.end_char] == c.text for c in chunks)
+
+    def test_start_char_sequential_for_divisible_text(self) -> None:
+        chunker = FixedChunker(_config(size=5))
+        text = "a" * 15
+
+        chunks = chunker.chunk(text)
+
+        assert [c.start_char for c in chunks] == [0, 5, 10]
+
+    def test_span_length_matches_text_length(self) -> None:
+        chunker = FixedChunker(_config(size=4))
+        text = "abcdefghijkl"
+
+        chunks = chunker.chunk(text)
+
+        assert all(c.end_char - c.start_char == len(c.text) for c in chunks)

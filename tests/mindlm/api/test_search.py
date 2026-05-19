@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import mindlm.api.dependencies as deps
 from mindlm.api.main import app
-from mindlm.api.routers.search import _format_context
+from mindlm.api.routers.search import _extract_sources, _format_context
 from mindlm.core.exceptions import LLMUnavailableError
 from mindlm.core.models import Result
 
@@ -21,6 +21,9 @@ def _result(
     *,
     chunk_context: str | None = None,
     document_summary: str | None = None,
+    page_number: int | None = None,
+    char_start: int | None = None,
+    char_end: int | None = None,
 ) -> Result:
     payload: dict[str, object] = {
         "content": "text",
@@ -31,6 +34,12 @@ def _result(
         payload["chunk_context"] = chunk_context
     if document_summary is not None:
         payload["document_summary"] = document_summary
+    if page_number is not None:
+        payload["page_number"] = page_number
+    if char_start is not None:
+        payload["char_start"] = char_start
+    if char_end is not None:
+        payload["char_end"] = char_end
     return Result(id="1", score=0.9, payload=payload)
 
 
@@ -117,3 +126,52 @@ class TestFormatContext:
         results = [_result(), _result()]
         formatted = _format_context(results)
         assert "\n\n" in formatted
+
+
+class TestExtractSources:
+    def test_citation_fields_populated_from_payload(self) -> None:
+        # Arrange
+        result = _result(page_number=2, char_start=100, char_end=200)
+
+        # Act
+        sources = _extract_sources([result])
+
+        # Assert
+        assert sources[0].page_number == 2
+        assert sources[0].char_start == 100
+        assert sources[0].char_end == 200
+
+    def test_page_number_none_when_absent_from_payload(self) -> None:
+        # Arrange
+        result = _result()  # no page_number in payload
+
+        # Act
+        sources = _extract_sources([result])
+
+        # Assert
+        assert sources[0].page_number is None
+
+    def test_char_start_and_end_default_to_none_when_absent(self) -> None:
+        # Arrange
+        result = _result()  # no char_start / char_end in payload
+
+        # Act
+        sources = _extract_sources([result])
+
+        # Assert
+        assert sources[0].char_start is None
+        assert sources[0].char_end is None
+
+    def test_char_start_cast_to_int_when_float_in_payload(self) -> None:
+        # Arrange
+        result = _result(char_start=100, char_end=200)
+        # Simulate payload with float values
+        result.payload["char_start"] = 100.0
+        result.payload["char_end"] = 200.0
+
+        # Act
+        sources = _extract_sources([result])
+
+        # Assert
+        assert sources[0].char_start == 100
+        assert isinstance(sources[0].char_start, int)

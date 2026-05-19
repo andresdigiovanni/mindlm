@@ -19,8 +19,16 @@ class SlidingChunker(BaseChunker):
         start = 0
         idx = 0
         while start < len(text):
-            segment = text[start : start + self._size]
-            chunks.append(Chunk(text=segment, index=idx, metadata={}))
+            end = min(start + self._size, len(text))
+            chunks.append(
+                Chunk(
+                    text=text[start:end],
+                    index=idx,
+                    metadata={},
+                    start_char=start,
+                    end_char=end,
+                )
+            )
             start += self._step
             idx += 1
         return chunks

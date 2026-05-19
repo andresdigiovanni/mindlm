@@ -37,3 +37,49 @@ class TestSlidingChunker:
         assert len(chunks) == 2
         assert chunks[0].text == "abcde"
         assert chunks[1].text == "fghij"
+
+    def test_first_chunk_start_end_char(self) -> None:
+        chunker = SlidingChunker(_config(size=4, overlap=0))
+        text = "abcdefgh"
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[0].start_char == 0
+        assert chunks[0].end_char == 4
+
+    def test_second_chunk_start_end_char(self) -> None:
+        # step = size - overlap = 4 - 2 = 2
+        chunker = SlidingChunker(_config(size=4, overlap=2))
+        text = "abcdefgh"
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[1].start_char == 2
+        assert chunks[1].end_char == 6
+
+    def test_slice_fidelity_all_chunks(self) -> None:
+        chunker = SlidingChunker(_config(size=4, overlap=1))
+        text = "abcdefghij"
+
+        chunks = chunker.chunk(text)
+
+        assert all(text[c.start_char : c.end_char] == c.text for c in chunks)
+
+    def test_last_chunk_end_char_equals_text_len(self) -> None:
+        chunker = SlidingChunker(_config(size=4, overlap=0))
+        text = "abcdefghij"
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[-1].end_char == len(text)
+
+    def test_overlapping_chunks_have_overlapping_ranges(self) -> None:
+        chunker = SlidingChunker(_config(size=4, overlap=2))
+        text = "abcdefgh"
+
+        chunks = chunker.chunk(text)
+
+        assert all(
+            chunks[i + 1].start_char <= chunks[i].end_char
+            for i in range(len(chunks) - 1)
+        )

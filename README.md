@@ -18,6 +18,7 @@ A local, configurable RAG (Retrieval-Augmented Generation) platform built for pr
 - **MCP server** — 5 tools over stdio transport for LLM agent integration
 - **Docker Compose** — all services (api, mcp, ollama, qdrant) run with a single command
 - **Path traversal protection** — `ingestion.allowed_base_dir` restricts which directories can be ingested
+- **Citation grounding** — every chunk carries exact character offsets (`char_start`, `char_end`) and a 1-indexed `page_number` (PDF); `/ask` surfaces these as `SourceRef` fields in `sources[]`; `/search` exposes them in `SearchResultItem.metadata`
 - **Observability (opt-in)** — Langfuse tracing for the full RAG pipeline; all stages (`search`/`ask` → retrieve → query processing, embedding, reranking, generation) are instrumented; disabled by default
 
 ---
@@ -421,11 +422,47 @@ curl -X POST http://localhost:8000/search \
   -d '{"query": "what is RAG", "top_k": 3}'
 ```
 
+Response shape (`SearchResultItem`):
+```json
+{
+  "content": "RAG combines retrieval with generation...",
+  "score": 0.91,
+  "source": "/data/docs/report.pdf",
+  "metadata": {
+    "char_start": 1240,
+    "char_end": 1680,
+    "page_number": 3
+  }
+}
+```
+
+`char_start` / `char_end` are character offsets into the original document text. `page_number` is 1-indexed and populated for PDF sources; `null` for other formats.
+
 **POST /ask**
 ```bash
 curl -X POST http://localhost:8000/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "What are the benefits of hybrid retrieval?"}'
+```
+
+Response shape (`AskResponse`):
+```json
+{
+  "answer": "Hybrid retrieval combines dense and sparse signals...",
+  "sources": [
+    {
+      "source": "/data/docs/report.pdf",
+      "score": 0.91,
+      "chunk_index": 4,
+      "page_number": 3,
+      "char_start": 1240,
+      "char_end": 1680
+    }
+  ]
+}
+```
+
+`page_number`, `char_start`, and `char_end` are `null` when not available (non-PDF sources or legacy indexed chunks).
 ```
 
 ---

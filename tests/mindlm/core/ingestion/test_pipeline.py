@@ -14,7 +14,7 @@ from mindlm.core.config.models import (
     VectorStoreConfig,
 )
 from mindlm.core.ingestion.pipeline import IngestionPipeline
-from mindlm.core.models import Chunk
+from mindlm.core.models import Chunk, ParsedDocument
 
 
 def _make_rag_config(
@@ -58,10 +58,10 @@ def _make_pipeline(
     embedding_provider = MagicMock()
     vectorstore = MagicMock()
 
-    parser.parse.return_value = "some text content"
+    parser.parse.return_value = ParsedDocument(text="some text content", page_breaks=[])
     chunker.chunk.return_value = [
-        Chunk(text="chunk 1", index=0, metadata={}),
-        Chunk(text="chunk 2", index=1, metadata={}),
+        Chunk(text="chunk 1", index=0, metadata={}, start_char=0, end_char=7),
+        Chunk(text="chunk 2", index=1, metadata={}, start_char=7, end_char=14),
     ]
     embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
     vectorstore.scroll.return_value = ([], None)  # no duplicate by default
@@ -83,7 +83,7 @@ class TestIngestionPipeline:
 
     def test_ingest_empty_chunks_returns_zero(self, tmp_path: Path) -> None:
         pipeline, parser, chunker, _ep, vs = _make_pipeline()
-        parser.parse.return_value = "text"
+        parser.parse.return_value = ParsedDocument(text="text", page_breaks=[])
         chunker.chunk.return_value = []
         doc = tmp_path / "doc.md"
         doc.write_text("", encoding="utf-8")
@@ -160,7 +160,14 @@ class TestIngestionPipeline:
     ) -> None:
         pipeline, _parser, chunker, ep, _vs = _make_pipeline()
         chunker.chunk.return_value = [
-            Chunk(text=f"chunk {i}", index=i, metadata={}) for i in range(n_chunks)
+            Chunk(
+                text=f"chunk {i}",
+                index=i,
+                metadata={},
+                start_char=i * 10,
+                end_char=i * 10 + 7,
+            )
+            for i in range(n_chunks)
         ]
         ep.embed.return_value = [[0.1] * 4] * n_chunks
         doc = tmp_path / "doc.md"
@@ -183,11 +190,13 @@ class TestIngestionPipelineParentDoc:
         embedding_provider = MagicMock()
         vectorstore = MagicMock()
 
-        parser.parse.return_value = "parent text content here for testing"
+        parser.parse.return_value = ParsedDocument(
+            text="parent text content here for testing", page_breaks=[]
+        )
         # child chunker returns 2 children per call
         chunker.chunk.return_value = [
-            Chunk(text="child 1", index=0, metadata={}),
-            Chunk(text="child 2", index=1, metadata={}),
+            Chunk(text="child 1", index=0, metadata={}, start_char=0, end_char=7),
+            Chunk(text="child 2", index=1, metadata={}, start_char=7, end_char=14),
         ]
         embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
         vectorstore.scroll.return_value = ([], None)  # no duplicate by default
@@ -204,8 +213,10 @@ class TestIngestionPipelineParentDoc:
         chunker = MagicMock()
         ep = MagicMock()
         vs = MagicMock()
-        parser.parse.return_value = "text"
-        chunker.chunk.return_value = [Chunk(text="chunk", index=0, metadata={})]
+        parser.parse.return_value = ParsedDocument(text="text", page_breaks=[])
+        chunker.chunk.return_value = [
+            Chunk(text="chunk", index=0, metadata={}, start_char=0, end_char=5)
+        ]
         ep.embed.return_value = [[0.1] * 4]
         vs.scroll.return_value = ([], None)
         pipeline = IngestionPipeline(cfg, parser, chunker, ep, vs)
@@ -266,7 +277,7 @@ class TestIngestionPipelineParentDoc:
             parent_chunk_size=200
         )
         # Make parser return text long enough for 2 parents of 200 chars each
-        parser.parse.return_value = "a" * 400
+        parser.parse.return_value = ParsedDocument(text="a" * 400, page_breaks=[])
         doc = tmp_path / "doc.md"
         doc.write_text("a" * 400, encoding="utf-8")
 
@@ -316,10 +327,12 @@ class TestIngestionPipelineContextualizer:
         embedding_provider = MagicMock()
         vectorstore = MagicMock()
 
-        parser.parse.return_value = "some text content"
+        parser.parse.return_value = ParsedDocument(
+            text="some text content", page_breaks=[]
+        )
         chunker.chunk.return_value = chunks or [
-            Chunk(text="chunk 1", index=0, metadata={}),
-            Chunk(text="chunk 2", index=1, metadata={}),
+            Chunk(text="chunk 1", index=0, metadata={}, start_char=0, end_char=7),
+            Chunk(text="chunk 2", index=1, metadata={}, start_char=7, end_char=14),
         ]
         embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
         vectorstore.scroll.return_value = ([], None)
@@ -381,11 +394,15 @@ class TestIngestionPipelineContextualizer:
                 text="sentence 1",
                 index=0,
                 metadata={"window_context": "sentence 1 sentence 2"},
+                start_char=0,
+                end_char=10,
             ),
             Chunk(
                 text="sentence 2",
                 index=1,
                 metadata={"window_context": "sentence 1 sentence 2"},
+                start_char=10,
+                end_char=20,
             ),
         ]
         pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
@@ -412,7 +429,7 @@ class TestIngestionPipelineContextualizer:
 
     def test_returns_zero_for_empty_text(self, tmp_path: Path) -> None:
         pipeline, parser, chunker, _ep, vs = self._make_pipeline_with_contextualizer()
-        parser.parse.return_value = ""
+        parser.parse.return_value = ParsedDocument(text="", page_breaks=[])
         chunker.chunk.return_value = []
         doc = tmp_path / "doc.md"
         doc.write_text("", encoding="utf-8")
@@ -541,9 +558,9 @@ class TestIngestionPipelineGraphExtraction:
         embedding_provider = MagicMock()
         vectorstore = MagicMock()
 
-        parser.parse.return_value = "some text"
+        parser.parse.return_value = ParsedDocument(text="some text", page_breaks=[])
         chunker.chunk.return_value = [
-            Chunk(text="chunk 1", index=0, metadata={}),
+            Chunk(text="chunk 1", index=0, metadata={}, start_char=0, end_char=7),
         ]
         embedding_provider.embed.return_value = [[0.1] * 4]
         vectorstore.scroll.return_value = ([], None)
@@ -651,8 +668,10 @@ class TestIngestionPipelineDeduplication:
         chunker = MagicMock()
         ep = MagicMock()
         vs = MagicMock()
-        parser.parse.return_value = "text"
-        chunker.chunk.return_value = [Chunk(text="chunk", index=0, metadata={})]
+        parser.parse.return_value = ParsedDocument(text="text", page_breaks=[])
+        chunker.chunk.return_value = [
+            Chunk(text="chunk", index=0, metadata={}, start_char=0, end_char=5)
+        ]
         ep.embed.return_value = [[0.1] * 4]
         pipeline = IngestionPipeline(cfg, parser, chunker, ep, vs)
         return pipeline, parser, chunker, ep, vs
@@ -727,10 +746,12 @@ class TestIngestionPipelineParentDocContextualizer:
         embedding_provider = MagicMock()
         vectorstore = MagicMock()
 
-        parser.parse.return_value = "parent text content here for testing"
+        parser.parse.return_value = ParsedDocument(
+            text="parent text content here for testing", page_breaks=[]
+        )
         chunker.chunk.return_value = [
-            Chunk(text="child 1", index=0, metadata={}),
-            Chunk(text="child 2", index=1, metadata={}),
+            Chunk(text="child 1", index=0, metadata={}, start_char=0, end_char=7),
+            Chunk(text="child 2", index=1, metadata={}, start_char=7, end_char=14),
         ]
         embedding_provider.embed.return_value = [[0.1] * 4, [0.2] * 4]
         vectorstore.scroll.return_value = ([], None)
@@ -788,7 +809,7 @@ class TestIngestionPipelineParentDocContextualizer:
             contextualizer=ctx, parent_chunk_size=200
         )
         # Two parent chunks worth of text
-        parser.parse.return_value = "a" * 400
+        parser.parse.return_value = ParsedDocument(text="a" * 400, page_breaks=[])
         doc = tmp_path / "doc.md"
         doc.write_text("a" * 400, encoding="utf-8")
 
@@ -830,3 +851,143 @@ class TestIngestionPipelineParentDocContextualizer:
 
         points = vs.upsert.call_args[0][0]
         assert all("document_summary" not in p.payload for p in points)
+
+
+class TestIngestionPipelineCitations:
+    def _make_pipeline_with_parsed_doc(
+        self,
+        parsed_doc: ParsedDocument,
+        chunks: list[Chunk] | None = None,
+    ) -> tuple[IngestionPipeline, MagicMock, MagicMock, MagicMock, MagicMock]:
+        cfg = _make_rag_config()
+        parser = MagicMock()
+        chunker = MagicMock()
+        embedding_provider = MagicMock()
+        vectorstore = MagicMock()
+
+        default_chunks = [
+            Chunk(text="chunk 1", index=0, metadata={}, start_char=0, end_char=7),
+        ]
+        parser.parse.return_value = parsed_doc
+        chunker.chunk.return_value = chunks if chunks is not None else default_chunks
+        embedding_provider.embed.return_value = [[0.1] * 4] * len(
+            chunker.chunk.return_value
+        )
+        vectorstore.scroll.return_value = ([], None)
+
+        pipeline = IngestionPipeline(
+            cfg, parser, chunker, embedding_provider, vectorstore
+        )
+        return pipeline, parser, chunker, embedding_provider, vectorstore
+
+    def test_non_pdf_page_number_is_none(self, tmp_path: Path) -> None:
+        # Arrange
+        parsed_doc = ParsedDocument(text="some content", page_breaks=[])
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_parsed_doc(parsed_doc)
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert
+        payload = vs.upsert.call_args[0][0][0].payload
+        assert payload["page_number"] is None
+
+    def test_pdf_chunk_in_page_one(self, tmp_path: Path) -> None:
+        # Arrange: page 1 ends at char 50, page 2 ends at char 100
+        parsed_doc = ParsedDocument(text="a" * 100, page_breaks=[50, 100])
+        chunk = Chunk(text="hello", index=0, metadata={}, start_char=10, end_char=15)
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_parsed_doc(
+            parsed_doc, chunks=[chunk]
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert
+        payload = vs.upsert.call_args[0][0][0].payload
+        assert payload["page_number"] == 1
+
+    def test_pdf_chunk_in_page_two(self, tmp_path: Path) -> None:
+        # Arrange: page 1 ends at char 50, page 2 ends at char 100
+        parsed_doc = ParsedDocument(text="a" * 100, page_breaks=[50, 100])
+        chunk = Chunk(text="hello", index=0, metadata={}, start_char=60, end_char=65)
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_parsed_doc(
+            parsed_doc, chunks=[chunk]
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert
+        payload = vs.upsert.call_args[0][0][0].payload
+        assert payload["page_number"] == 2
+
+    def test_payload_char_start_equals_chunk_start_char(self, tmp_path: Path) -> None:
+        # Arrange
+        parsed_doc = ParsedDocument(text="hello world", page_breaks=[])
+        chunk = Chunk(text="hello", index=0, metadata={}, start_char=0, end_char=5)
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_parsed_doc(
+            parsed_doc, chunks=[chunk]
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert
+        payload = vs.upsert.call_args[0][0][0].payload
+        assert payload["char_start"] == chunk.start_char
+
+    def test_payload_char_end_equals_chunk_end_char(self, tmp_path: Path) -> None:
+        # Arrange
+        parsed_doc = ParsedDocument(text="hello world", page_breaks=[])
+        chunk = Chunk(text="hello", index=0, metadata={}, start_char=0, end_char=5)
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_parsed_doc(
+            parsed_doc, chunks=[chunk]
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert
+        payload = vs.upsert.call_args[0][0][0].payload
+        assert payload["char_end"] == chunk.end_char
+
+    def test_parent_doc_child_char_start_adjusted(self, tmp_path: Path) -> None:
+        # Arrange: parent chunk starts at char 0, child starts at 0 within parent
+        cfg = _make_rag_config(parent_chunk_size=200)
+        parser = MagicMock()
+        chunker = MagicMock()
+        ep = MagicMock()
+        vs = MagicMock()
+
+        text = "a" * 200
+        parsed_doc = ParsedDocument(text=text, page_breaks=[])
+        parser.parse.return_value = parsed_doc
+        # child starts at char 0 within the parent (parent itself starts at 0)
+        child_chunk = Chunk(
+            text="child", index=0, metadata={}, start_char=0, end_char=5
+        )
+        chunker.chunk.return_value = [child_chunk]
+        ep.embed.return_value = [[0.1] * 4]
+        vs.scroll.return_value = ([], None)
+
+        pipeline = IngestionPipeline(cfg, parser, chunker, ep, vs)
+        doc = tmp_path / "doc.md"
+        doc.write_text(text, encoding="utf-8")
+
+        # Act
+        pipeline.ingest(doc)
+
+        # Assert: parent_chunk.start_char = 0, child.start_char = 0 → payload = 0
+        payload = vs.upsert.call_args[0][0][0].payload
+        assert payload["char_start"] == 0

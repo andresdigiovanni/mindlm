@@ -114,3 +114,52 @@ class TestRecursiveChunker:
 
         assert all(len(c.text) <= 3 for c in chunks)
         assert "".join(c.text for c in chunks) == text
+
+    def test_single_chunk_start_end_char(self) -> None:
+        chunker = RecursiveChunker(_config(size=200))
+        text = "short text"
+
+        chunks = chunker.chunk(text)
+
+        assert chunks[0].start_char == 0
+        assert chunks[0].end_char == len(text)
+
+    def test_two_parts_offsets_match_original_text(self) -> None:
+        chunker = RecursiveChunker(_config(size=20, separators=["\n\n"]))
+        text = "paragraph one here!!\n\nparagraph two here!!"
+
+        chunks = chunker.chunk(text)
+
+        for c in chunks:
+            assert text[c.start_char : c.end_char] == c.text
+
+    def test_deep_nesting_slice_fidelity(self) -> None:
+        chunker = RecursiveChunker(_config(size=10))
+        text = "word one\nword two\nword three\nword four\nword five"
+
+        chunks = chunker.chunk(text)
+
+        assert all(text[c.start_char : c.end_char] == c.text for c in chunks)
+
+    def test_empty_text_returns_empty_list_offsets(self) -> None:
+        chunker = RecursiveChunker(_config())
+
+        chunks = chunker.chunk("")
+
+        assert chunks == []
+
+    def test_char_level_split_offsets(self) -> None:
+        chunker = RecursiveChunker(_config(size=2, separators=[""]))
+        text = "abcdef"
+
+        chunks = chunker.chunk(text)
+
+        assert all(text[c.start_char : c.end_char] == c.text for c in chunks)
+
+    def test_slice_fidelity_all_chunks(self) -> None:
+        chunker = RecursiveChunker(_config(size=15))
+        text = "First section.\n\nSecond section.\n\nThird section."
+
+        chunks = chunker.chunk(text)
+
+        assert all(text[c.start_char : c.end_char] == c.text for c in chunks)

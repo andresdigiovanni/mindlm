@@ -14,7 +14,14 @@ from mindlm.core.embeddings.base import EmbeddingProvider
 from mindlm.core.graph.base import GraphStore
 from mindlm.core.graph.extractor import EntityExtractor
 from mindlm.core.ingestion.contextualizer import Contextualizer
-from mindlm.core.models import Chunk, Entity, Point, Relationship, SparseVector
+from mindlm.core.models import (
+    Chunk,
+    Entity,
+    ParsedDocument,
+    Point,
+    Relationship,
+    SparseVector,
+)
 from mindlm.core.parsing.dispatcher import ParserDispatcher
 from mindlm.core.vectorstore.base import VectorStore
 
@@ -52,13 +59,16 @@ class IngestionPipeline:
             input=str(path),
             metadata={"strategy": self._config.chunking.strategy},
         )
-        text = self._parser.parse(path)
+        parsed_doc = self._parser.parse(path)
+        text = parsed_doc.text
         document_hash = self._calculate_hash(path)
         if self._config.ingestion.deduplication and self._is_duplicate(document_hash):
             return 0
         parent_size = self._config.chunking.parent_chunk_size
         if parent_size is not None:
-            return self._ingest_parent_doc(path, text, parent_size, document_hash)
+            return self._ingest_parent_doc(
+                path, text, parent_size, document_hash, parsed_doc
+            )
         chunks = self._chunker.chunk(text)
         if not chunks:
             return 0
@@ -80,6 +90,7 @@ class IngestionPipeline:
                     chunks[i],
                     len(chunks),
                     document_hash,
+                    parsed_doc,
                     chunk_context=contexts[i] if contexts else None,
                     document_summary=document_summary,
                 ),
@@ -97,7 +108,12 @@ class IngestionPipeline:
         return len(points) > 0
 
     def _ingest_parent_doc(
-        self, path: Path, text: str, parent_size: int, document_hash: str
+        self,
+        path: Path,
+        text: str,
+        parent_size: int,
+        document_hash: str,
+        parsed_doc: ParsedDocument,
     ) -> int:
         parent_config = ChunkingConfig(
             strategy="fixed", chunk_size=parent_size, overlap=0
@@ -118,19 +134,30 @@ class IngestionPipeline:
             child_chunks = self._chunker.chunk(parent_chunk.text)
             if not child_chunks:
                 continue
-            contexts = self._get_chunk_contexts(text, child_chunks)
-            child_point_ids = [str(uuid4()) for _ in child_chunks]
+            adjusted_chunks = [
+                Chunk(
+                    text=c.text,
+                    index=c.index,
+                    metadata=c.metadata,
+                    start_char=parent_chunk.start_char + c.start_char,
+                    end_char=parent_chunk.start_char + c.end_char,
+                )
+                for c in child_chunks
+            ]
+            contexts = self._get_chunk_contexts(text, adjusted_chunks)
+            child_point_ids = [str(uuid4()) for _ in adjusted_chunks]
             self._extract_and_store_entities(
-                list(zip(child_chunks, child_point_ids, strict=True))
+                list(zip(adjusted_chunks, child_point_ids, strict=True))
             )
-            child_texts = [c.text for c in child_chunks]
+            child_texts = [c.text for c in adjusted_chunks]
             child_vectors = self._embedding_provider.embed(child_texts)
-            for i, child in enumerate(child_chunks):
+            for i, child in enumerate(adjusted_chunks):
                 payload = self._build_payload(
                     path,
                     child,
-                    len(child_chunks),
+                    len(adjusted_chunks),
                     document_hash,
+                    parsed_doc,
                     chunk_context=contexts[i] if contexts else None,
                     document_summary=document_summary,
                 )
@@ -191,6 +218,7 @@ class IngestionPipeline:
         chunk: Chunk,
         total: int,
         document_hash: str,
+        parsed_doc: ParsedDocument,
         chunk_context: str | None = None,
         document_summary: str | None = None,
     ) -> dict[str, Any]:
@@ -204,6 +232,9 @@ class IngestionPipeline:
             "chunk_index": chunk.index,
             "total_chunks": total,
             "ingested_at": datetime.now(tz=UTC).isoformat(),
+            "char_start": chunk.start_char,
+            "char_end": chunk.end_char,
+            "page_number": parsed_doc.page_number_for(chunk.start_char),
         }
         if "window_context" in chunk.metadata:
             payload["window_context"] = chunk.metadata["window_context"]

@@ -11,5 +11,16 @@ class FixedChunker(BaseChunker):
         if not text:
             return []
         size = self._size
-        segments = [text[i : i + size] for i in range(0, len(text), size)]
-        return [Chunk(text=s, index=i, metadata={}) for i, s in enumerate(segments)]
+        chunks: list[Chunk] = []
+        for idx, start in enumerate(range(0, len(text), size)):
+            end = min(start + size, len(text))
+            chunks.append(
+                Chunk(
+                    text=text[start:end],
+                    index=idx,
+                    metadata={},
+                    start_char=start,
+                    end_char=end,
+                )
+            )
+        return chunks

@@ -41,6 +41,9 @@ class SourceRef(BaseModel):
     source: str
     score: float
     chunk_index: int
+    page_number: int | None = None
+    char_start: int | None = None
+    char_end: int | None = None
 
 
 class AskResponse(BaseModel):

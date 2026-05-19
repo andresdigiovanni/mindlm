@@ -6,21 +6,34 @@ from docx import Document as DocxDocument
 from pptx import Presentation
 
 from mindlm.core.exceptions import ParseError
+from mindlm.core.models import ParsedDocument
 from mindlm.core.parsing.base import DocumentParser
 
 
 class StructuredParser(DocumentParser):
-    def parse(self, path: Path) -> str:
+    def parse(self, path: Path) -> ParsedDocument:
         suffix = path.suffix.lower()
         match suffix:
             case ".pdf":
                 doc = fitz.open(str(path))
-                lines: list[str] = []
+                page_texts: list[str] = []
                 for page in doc:
                     blocks = page.get_text("blocks")
                     sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
-                    lines.extend(b[4].strip() for b in sorted_blocks if b[4].strip())
-                return "\n".join(lines)
+                    page_text = "\n".join(
+                        b[4].strip() for b in sorted_blocks if b[4].strip()
+                    )
+                    page_texts.append(page_text)
+                pos = 0
+                page_breaks: list[int] = []
+                for i, pt in enumerate(page_texts):
+                    pos += len(pt)
+                    page_breaks.append(pos)
+                    if i < len(page_texts) - 1:
+                        pos += 1  # advance past the "\n" separator
+                return ParsedDocument(
+                    text="\n".join(page_texts), page_breaks=page_breaks
+                )
             case ".html" | ".htm":
                 soup = BeautifulSoup(path.read_bytes(), "lxml")
                 parts: list[str] = []
@@ -42,9 +55,11 @@ class StructuredParser(DocumentParser):
                             parts.append(f"- {text}")
                         case _:
                             parts.append(text)
-                return "\n".join(parts)
+                return ParsedDocument(text="\n".join(parts), page_breaks=[])
             case ".md" | ".markdown":
-                return path.read_text(encoding="utf-8")
+                return ParsedDocument(
+                    text=path.read_text(encoding="utf-8"), page_breaks=[]
+                )
             case ".docx":
                 doc_x = DocxDocument(str(path))
                 parts_d: list[str] = []
@@ -58,7 +73,7 @@ class StructuredParser(DocumentParser):
                         parts_d.append(f"## {para.text}")
                     else:
                         parts_d.append(para.text)
-                return "\n".join(parts_d)
+                return ParsedDocument(text="\n".join(parts_d), page_breaks=[])
             case ".pptx":
                 prs = Presentation(str(path))
                 slide_texts: list[str] = []
@@ -74,6 +89,6 @@ class StructuredParser(DocumentParser):
                     header = f"## Slide {i}: {title}" if title else f"## Slide {i}"
                     slide_texts.append(header)
                     slide_texts.extend(body_parts)
-                return "\n".join(slide_texts)
+                return ParsedDocument(text="\n".join(slide_texts), page_breaks=[])
             case _:
                 raise ParseError(str(path), "structured")

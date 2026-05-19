@@ -18,6 +18,16 @@ class SentenceWindowChunker(BaseChunker):
         sentences = [s.strip() for s in raw if s.strip()]
         if not sentences:
             return []
+
+        sentence_offsets: list[int] = []
+        search_from = 0
+        for s in sentences:
+            found = text.find(s, search_from)
+            if found == -1:
+                found = search_from
+            sentence_offsets.append(found)
+            search_from = found + len(s)
+
         w = self._window_size
         result: list[Chunk] = []
         for i, sentence in enumerate(sentences):
@@ -29,6 +39,8 @@ class SentenceWindowChunker(BaseChunker):
                     text=sentence,
                     index=i,
                     metadata={"window_context": window_context},
+                    start_char=sentence_offsets[i],
+                    end_char=sentence_offsets[i] + len(sentence),
                 )
             )
         return result

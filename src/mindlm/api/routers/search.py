@@ -35,6 +35,11 @@ def _extract_sources(results: list[Result]) -> list[SourceRef]:
             source=r.payload.get("source", ""),
             score=r.score,
             chunk_index=int(r.payload.get("chunk_index", 0)),
+            page_number=r.payload.get("page_number"),
+            char_start=int(v)
+            if (v := r.payload.get("char_start")) is not None
+            else None,
+            char_end=int(v) if (v := r.payload.get("char_end")) is not None else None,
         )
         for r in results
     ]
