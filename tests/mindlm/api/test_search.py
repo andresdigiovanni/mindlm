@@ -43,6 +43,12 @@ def _result(
     return Result(id="1", score=0.9, payload=payload)
 
 
+def _mock_config(score_threshold: float | None = None) -> MagicMock:
+    cfg = MagicMock()
+    cfg.retrieval.score_threshold = score_threshold
+    return cfg
+
+
 class TestSearchEndpoint:
     def test_search_returns_results(self) -> None:
         mock_retriever = MagicMock()
@@ -51,6 +57,7 @@ class TestSearchEndpoint:
         mock_reranker.rerank.return_value = [_result()]
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_config] = lambda: _mock_config()
 
         client = TestClient(app)
         response = client.post("/search", json={"query": "test"})
@@ -69,6 +76,7 @@ class TestSearchEndpoint:
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
         app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_config] = lambda: _mock_config()
 
         client = TestClient(app)
         response = client.post("/ask", json={"question": "What is RAG?"})
@@ -86,6 +94,7 @@ class TestSearchEndpoint:
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
         app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_config] = lambda: _mock_config()
 
         client = TestClient(app)
         response = client.post("/ask", json={"question": "test?"})
@@ -175,3 +184,75 @@ class TestExtractSources:
         # Assert
         assert sources[0].char_start == 100
         assert isinstance(sources[0].char_start, int)
+
+
+class TestScoreThreshold:
+    """Threshold is applied after reranking on the reranker's score scale."""
+
+    def _make_result(self, id_: str, score: float) -> Result:
+        return Result(id=id_, score=score, payload={"content": "t", "source": "s"})
+
+    def _override(
+        self, reranked: list[Result], config_threshold: float | None = None
+    ) -> None:
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = reranked
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.return_value = reranked
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_config] = lambda: _mock_config(
+            config_threshold
+        )
+
+    def test_no_threshold_returns_all_results(self) -> None:
+        results = [self._make_result("1", 0.85), self._make_result("2", 0.2)]
+        self._override(results)
+        client = TestClient(app)
+        response = client.post("/search", json={"query": "q"})
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 2
+
+    def test_request_threshold_filters_low_scores(self) -> None:
+        results = [self._make_result("1", 0.85), self._make_result("2", 0.2)]
+        self._override(results)
+        client = TestClient(app)
+        response = client.post("/search", json={"query": "q", "score_threshold": 0.5})
+        assert response.status_code == 200
+        data = response.json()["results"]
+        assert len(data) == 1
+        assert data[0]["score"] == pytest.approx(0.85)
+
+    def test_config_threshold_applied_when_no_request_threshold(self) -> None:
+        results = [self._make_result("1", 0.85), self._make_result("2", 0.2)]
+        self._override(results, config_threshold=0.5)
+        client = TestClient(app)
+        response = client.post("/search", json={"query": "q"})
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 1
+
+    def test_request_threshold_overrides_config(self) -> None:
+        results = [self._make_result("1", 0.9), self._make_result("2", 0.6)]
+        self._override(results, config_threshold=0.5)  # config keeps both
+        client = TestClient(app)
+        response = client.post("/search", json={"query": "q", "score_threshold": 0.8})
+        assert response.status_code == 200
+        data = response.json()["results"]
+        assert len(data) == 1
+        assert data[0]["score"] == pytest.approx(0.9)
+
+    def test_threshold_boundary_is_inclusive(self) -> None:
+        results = [self._make_result("1", 0.7)]
+        self._override(results, config_threshold=0.7)
+        client = TestClient(app)
+        response = client.post("/search", json={"query": "q"})
+        assert response.status_code == 200
+        assert len(response.json()["results"]) == 1
+
+    def test_all_filtered_returns_empty_results(self) -> None:
+        results = [self._make_result("1", 0.1), self._make_result("2", 0.05)]
+        self._override(results, config_threshold=0.5)
+        client = TestClient(app)
+        response = client.post("/search", json={"query": "q"})
+        assert response.status_code == 200
+        assert response.json()["results"] == []

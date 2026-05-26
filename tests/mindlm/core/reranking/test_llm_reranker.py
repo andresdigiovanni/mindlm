@@ -38,7 +38,7 @@ class TestLLMReranker:
 
         output = reranker.rerank("query", results)
 
-        assert output[0].score == 7.0
+        assert output[0].score == pytest.approx(6.0 / 9.0)  # (7-1)/9 normalized
 
     def test_parse_failure_keeps_original_score(self) -> None:
         reranker, _ = _make_reranker(["not a number"])

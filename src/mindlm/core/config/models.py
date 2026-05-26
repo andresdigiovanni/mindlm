@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 
 class LLMConfig(BaseModel):
     provider: Literal["ollama"] = "ollama"
-    model: str = "llama3"
+    model: str = "gemma4"
     base_url: str = "http://ollama:11434"
     temperature: float = 0.7
     max_tokens: int = Field(default=1024, gt=0)
@@ -71,6 +71,7 @@ class ChunkingConfig(BaseModel):
 class RetrievalConfig(BaseModel):
     strategy: Literal["vector", "hybrid"] = "vector"
     top_k: int = Field(default=5, gt=0)
+    score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class RerankingConfig(BaseModel):

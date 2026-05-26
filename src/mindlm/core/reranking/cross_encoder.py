@@ -1,5 +1,6 @@
 from dataclasses import replace
 
+import torch
 from langfuse.decorators import observe
 from sentence_transformers import CrossEncoder
 
@@ -10,8 +11,13 @@ from mindlm.core.reranking.base import BaseReranker
 
 class CrossEncoderReranker(BaseReranker):
     def __init__(self, config: RerankingConfig) -> None:
+        # activation_fn=Sigmoid() overrides the model's default activation and
+        # ensures predict() always operates on raw logits → returns scores in (0, 1).
+        # This avoids double-sigmoid on models (e.g. BAAI/bge-reranker-v2-m3)
+        # that already declare Sigmoid as their default activation_fn.
         self._model = CrossEncoder(
-            config.model or "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            config.model or "BAAI/bge-reranker-v2-m3",
+            activation_fn=torch.nn.Sigmoid(),
         )
 
     @observe(name="cross-encoder-rerank")
@@ -19,7 +25,7 @@ class CrossEncoderReranker(BaseReranker):
         if not results:
             return results
         pairs = [(query, r.payload.get("content", "")) for r in results]
-        scores: list[float] = self._model.predict(pairs).tolist()
+        scores: list[float] = self._model.predict(pairs).tolist()  # (0, 1) via Sigmoid
         scored = sorted(
             zip(results, scores, strict=False), key=lambda x: x[1], reverse=True
         )

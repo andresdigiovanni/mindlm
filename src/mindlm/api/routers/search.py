@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends
 from langfuse.decorators import observe
 
-from mindlm.api.dependencies import get_llm_provider, get_reranker, get_retriever
+from mindlm.api.dependencies import (
+    get_config,
+    get_llm_provider,
+    get_reranker,
+    get_retriever,
+)
 from mindlm.api.schemas import (
     AskRequest,
     AskResponse,
@@ -10,6 +15,7 @@ from mindlm.api.schemas import (
     SearchResultItem,
     SourceRef,
 )
+from mindlm.core.config.models import RAGConfig
 from mindlm.core.generation.base import LLMProvider
 from mindlm.core.models import Result
 from mindlm.core.reranking.base import BaseReranker
@@ -54,9 +60,21 @@ async def search(
     request: SearchRequest,
     retriever: Retriever = Depends(get_retriever),
     reranker: BaseReranker = Depends(get_reranker),
+    config: RAGConfig = Depends(get_config),
 ) -> SearchResponse:
-    results = retriever.retrieve(request.query, request.filters)
+    results = retriever.retrieve(
+        request.query,
+        request.filters,
+        top_k=request.top_k,
+    )
     results = reranker.rerank(request.query, results)
+    threshold = (
+        request.score_threshold
+        if request.score_threshold is not None
+        else config.retrieval.score_threshold
+    )
+    if threshold is not None:
+        results = [r for r in results if r.score >= threshold]
     items = [
         SearchResultItem(
             content=r.payload.get("content", ""),
@@ -78,9 +96,21 @@ async def ask(
     retriever: Retriever = Depends(get_retriever),
     reranker: BaseReranker = Depends(get_reranker),
     llm: LLMProvider = Depends(get_llm_provider),
+    config: RAGConfig = Depends(get_config),
 ) -> AskResponse:
-    results = retriever.retrieve(request.question, request.filters)
+    results = retriever.retrieve(
+        request.question,
+        request.filters,
+        top_k=request.top_k,
+    )
     results = reranker.rerank(request.question, results)
+    threshold = (
+        request.score_threshold
+        if request.score_threshold is not None
+        else config.retrieval.score_threshold
+    )
+    if threshold is not None:
+        results = [r for r in results if r.score >= threshold]
 
     context_blocks = _format_context(results)
     system_msg = "You are a helpful assistant. Answer using only the provided context."

@@ -124,7 +124,7 @@ Controls the language model used for answer generation.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `provider` | `"ollama"` | `"ollama"` | LLM provider. Only `ollama` is supported |
-| `model` | string | `"llama3"` | Ollama model name (must be pulled with `ollama pull <model>`) |
+| `model` | string | `"gemma4"` | Ollama model name (must be pulled with `ollama pull <model>`) |
 | `base_url` | string | `"http://ollama:11434"` | Ollama service URL. Use `http://localhost:11434` for local dev |
 | `temperature` | float | `0.7` | Sampling temperature. `0.0` = deterministic, `1.0` = most random |
 | `max_tokens` | int (> 0) | `1024` | Maximum tokens to generate per response |

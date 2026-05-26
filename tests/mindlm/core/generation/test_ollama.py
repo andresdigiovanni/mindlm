@@ -13,7 +13,7 @@ from mindlm.core.generation.ollama import OllamaProvider
 def _config() -> LLMConfig:
     return LLMConfig(
         provider="ollama",
-        model="llama3",
+        model="gemma4",
         base_url="http://localhost:11434",
         temperature=0.7,
         max_tokens=1024,

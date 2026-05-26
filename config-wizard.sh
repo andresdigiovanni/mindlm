@@ -187,7 +187,7 @@ if [[ "${PROFILE_NAME}" != "custom" ]]; then
   # Allow patching common fields
   read_value "App name" "local-rag" APP_NAME
   read_value "Qdrant collection name" "documents" COLLECTION_NAME
-  read_value "LLM model" "llama3" LLM_MODEL
+  read_value "LLM model" "gemma4" LLM_MODEL
   read_value "Ollama base URL" "http://ollama:11434" LLM_BASE_URL
 
   # Copy profile and patch fields safely using Python (avoids sed special-char injection)
@@ -223,7 +223,7 @@ read_value "App name" "local-rag" APP_NAME
 echo ""
 echo -e "${BOLD}${CYAN}─── LLM ────────────────────────────────────────${NC}"
 read_value "Provider" "ollama" LLM_PROVIDER
-read_value "Model" "llama3" LLM_MODEL
+read_value "Model" "gemma4" LLM_MODEL
 read_value "Base URL" "http://ollama:11434" LLM_BASE_URL
 read_value "Temperature (0.0–1.0)" "0.7" LLM_TEMPERATURE
 read_value "Max tokens" "1024" LLM_MAX_TOKENS

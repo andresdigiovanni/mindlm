@@ -12,12 +12,15 @@ class SearchRequest(BaseModel):
     collection: str | None = None
     filters: dict[str, str] | None = None
     top_k: int = Field(default=5, gt=0)
+    score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=1)
     collection: str | None = None
     filters: dict[str, str] | None = None
+    top_k: int | None = Field(default=None, gt=0)
+    score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class HealthResponse(BaseModel):

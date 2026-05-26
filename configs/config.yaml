@@ -40,7 +40,7 @@ chunking:
   chunk_size: 500
   overlap: 50
   semantic_model: BAAI/bge-large-en-v1.5  # must match embeddings.model
-  # parent_chunk_size: 1500  # optional: enable parent-document retrieval
+  parent_chunk_size: 1500  # optional: enable parent-document retrieval
   # window_size: 2  # used only when strategy: sentence_window
 
 # ── Retrieval Pipeline ──────────────────────────────────────
@@ -48,12 +48,12 @@ chunking:
 retrieval:
   strategy: hybrid
   top_k: 10
-  # score_threshold: 0.6  # optional: drop results below this similarity score
+  score_threshold: 0.6  # optional: drop results below this similarity score
 
 reranking:
   enabled: true
   method: cross_encoder
-  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  model: BAAI/bge-reranker-v2-m3
   # method: llm          # LLM-based 1-10 scoring (requires llm config)
   # method: compression  # Contextual compression - extracts relevant parts only
 
@@ -63,7 +63,7 @@ reranking:
 # chunk_context_enabled: 1 LLM call per chunk → payload["chunk_context"]
 # document_summary_enabled: 1 LLM call per document → payload["document_summary"]
 contextual_retrieval:
-  chunk_context_enabled: true
+  chunk_context_enabled: false
   document_summary_enabled: true
 
 # ── Query Processing Pipeline ───────────────────────────────
@@ -100,7 +100,7 @@ observability:
 # are extracted from each chunk and stored in a graph DB. At query time, the graph
 # is traversed to expand vector search results with related context.
 # Set "enabled: true" to activate. Neo4j must be running (included in docker-compose.yml).
-
+#
 graph_rag:
   enabled: false
   store:

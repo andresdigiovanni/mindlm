@@ -33,7 +33,8 @@ class LLMReranker(BaseReranker):
         prompt = _RELEVANCE_PROMPT.format(query=query, document=content)
         try:
             response = self._llm.chat([{"role": "user", "content": prompt}])
-            return self._parse_score(response)
+            raw = self._parse_score(response)  # 1-10
+            return (raw - 1.0) / 9.0  # normalize to [0, 1]
         except (RuntimeError, OSError, ValueError):
             return result.score
 

@@ -44,11 +44,19 @@ class Retriever:
 
     @observe(name="retrieve")
     def retrieve(
-        self, query: str, filters: dict[str, Any] | None = None
+        self,
+        query: str,
+        filters: dict[str, Any] | None = None,
+        *,
+        top_k: int | None = None,
     ) -> list[Result]:
+        effective_top_k = top_k if top_k is not None else self._config.top_k
         langfuse_context.update_current_observation(
             input=query,
-            metadata={"strategy": self._config.strategy, "top_k": self._config.top_k},
+            metadata={
+                "strategy": self._config.strategy,
+                "top_k": effective_top_k,
+            },
         )
         if self._query_processor is not None:
             assert self._llm is not None
@@ -57,14 +65,14 @@ class Retriever:
             queries = [query]
         all_results: dict[str, Result] = {}
         for q in queries:
-            for result in self._retrieve_single(q, filters):
+            for result in self._retrieve_single(q, filters, effective_top_k):
                 if (
                     result.id not in all_results
                     or result.score > all_results[result.id].score
                 ):
                     all_results[result.id] = result
         merged = sorted(all_results.values(), key=lambda r: r.score, reverse=True)
-        results = merged[: self._config.top_k]
+        results = merged[:effective_top_k]
         if self._resolve_parents:
             results = self._apply_parent_resolution(results)
         if self._resolve_windows:
@@ -74,17 +82,15 @@ class Retriever:
         return results
 
     def _retrieve_single(
-        self, query: str, filters: dict[str, Any] | None
+        self, query: str, filters: dict[str, Any] | None, top_k: int
     ) -> list[Result]:
         dense = self._embedding_provider.embed([query])[0]
         match self._config.strategy:
             case "vector":
-                return self._vectorstore.search(dense, self._config.top_k, filters)
+                return self._vectorstore.search(dense, top_k, filters)
             case "hybrid":
                 sparse = self._compute_bm25(query)
-                return self._vectorstore.search_hybrid(
-                    dense, sparse, self._config.top_k, filters
-                )
+                return self._vectorstore.search_hybrid(dense, sparse, top_k, filters)
             case _:  # pragma: no cover
                 raise ValueError(
                     f"Unknown retrieval strategy: {self._config.strategy!r}"

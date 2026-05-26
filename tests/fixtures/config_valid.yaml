@@ -1,6 +1,6 @@
 llm:
   provider: ollama
-  model: llama3
+  model: gemma4
   base_url: http://ollama:11434
 
 embeddings:
@@ -43,6 +43,6 @@ reranking:
 
 generation:
   provider: ollama
-  model: llama3
+  model: gemma4
   temperature: 0.7
   max_tokens: 1024

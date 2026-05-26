@@ -21,7 +21,7 @@
 
 llm:
   provider: ollama           # currently only "ollama" is supported
-  model: llama3              # any model pulled in Ollama (e.g. mistral, gemma2)
+  model: gemma4              # any model pulled in Ollama (e.g. mistral, gemma2)
   base_url: http://ollama:11434  # use http://localhost:11434 for local dev outside Docker
   temperature: 0.7           # 0.0 = deterministic, 1.0 = creative
   max_tokens: 1024           # maximum tokens in the generated answer
@@ -63,6 +63,7 @@ chunking:
 retrieval:
   strategy: vector           # vector = dense similarity; hybrid = dense + sparse (BM25)
   top_k: 5                   # number of chunks returned before reranking
+  # score_threshold: 0.6    # optional: drop results below this similarity score (0.0–1.0)
 
 reranking:
   enabled: false             # set to true to re-score retrieved chunks

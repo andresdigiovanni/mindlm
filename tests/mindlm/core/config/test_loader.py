@@ -51,7 +51,7 @@ class TestLoadConfig:
         # Arrange
         minimal = tmp_path / "minimal.yaml"
         minimal.write_text(
-            "llm:\n  provider: ollama\n  model: llama3\n  base_url: http://localhost\n"
+            "llm:\n  provider: ollama\n  model: gemma4\n  base_url: http://localhost\n"
             "embeddings:\n  provider: huggingface\n  model: test\n  dimensions: 1\n"
             "vector_store:\n  provider: qdrant\n  mode: local\n  host: localhost\n  port: 6333\n  collection: docs\n",
             encoding="utf-8",
@@ -67,7 +67,7 @@ class TestLoadConfig:
         # Arrange
         bad = tmp_path / "bad_chunk.yaml"
         bad.write_text(
-            "llm:\n  provider: ollama\n  model: llama3\n  base_url: http://localhost\n"
+            "llm:\n  provider: ollama\n  model: gemma4\n  base_url: http://localhost\n"
             "embeddings:\n  provider: huggingface\n  model: test\n  dimensions: 1\n"
             "vector_store:\n  provider: qdrant\n  mode: local\n  host: localhost\n  port: 6333\n  collection: docs\n"
             "chunking:\n  strategy: fixed\n  chunk_size: 0\n  overlap: 0\n",

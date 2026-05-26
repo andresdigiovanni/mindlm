@@ -23,7 +23,7 @@ def _make_rag_config(
     allowed_base_dir: str = "/",
 ) -> RAGConfig:
     return RAGConfig(
-        llm=LLMConfig(provider="ollama", model="llama3", base_url="http://localhost"),
+        llm=LLMConfig(provider="ollama", model="gemma4", base_url="http://localhost"),
         embeddings=EmbeddingsConfig(provider="huggingface", model="test", dimensions=4),
         vector_store=VectorStoreConfig(
             provider="qdrant",
@@ -642,7 +642,7 @@ class TestIngestionPipelineDeduplication:
     ) -> tuple[IngestionPipeline, MagicMock, MagicMock, MagicMock, MagicMock]:
         cfg = RAGConfig(
             llm=LLMConfig(
-                provider="ollama", model="llama3", base_url="http://localhost"
+                provider="ollama", model="gemma4", base_url="http://localhost"
             ),
             embeddings=EmbeddingsConfig(
                 provider="huggingface", model="test", dimensions=4

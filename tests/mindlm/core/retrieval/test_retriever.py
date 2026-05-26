@@ -402,3 +402,32 @@ class TestRetrieverGraphExpansion:
 
         # Assert
         assert len(output) == 4
+
+
+class TestRetrieverTopKOverride:
+    def _make_retriever(self, results: list[Result], top_k: int = 10) -> Retriever:
+        config = RetrievalConfig(strategy="vector", top_k=top_k)
+        vs = MagicMock()
+        vs.search.return_value = results
+        ep = MagicMock()
+        ep.embed.return_value = [[0.1] * 10]
+        return Retriever(config, vs, ep)
+
+    def test_retrieve_returns_all_within_top_k(self) -> None:
+        results = [
+            Result(id="1", score=0.9, payload={}),
+            Result(id="2", score=0.3, payload={}),
+        ]
+        retriever = self._make_retriever(results)
+
+        output = retriever.retrieve("q")
+
+        assert len(output) == 2
+
+    def test_request_top_k_overrides_config(self) -> None:
+        results = [Result(id=str(i), score=float(i) / 10, payload={}) for i in range(8)]
+        retriever = self._make_retriever(results, top_k=5)
+
+        output = retriever.retrieve("q", top_k=3)
+
+        assert len(output) == 3

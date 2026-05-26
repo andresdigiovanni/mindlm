@@ -15,7 +15,7 @@ services:
       - hf_cache:/cache/hf
       # Mount your document directory into the container.
       # Must match ingestion.allowed_base_dir in config.yaml (default: /data).
-      # - ./data:/data:ro
+      - ./sample-docs:/data:ro
     networks:
       - rag_net
 
@@ -35,7 +35,7 @@ services:
       - hf_cache:/cache/hf
       # Mount your document directory into the container.
       # Must match ingestion.allowed_base_dir in config.yaml (default: /data).
-      # - ./data:/data:ro
+      - ./sample-docs:/data:ro
     networks:
       - rag_net
 

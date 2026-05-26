@@ -30,6 +30,8 @@ class TestRerankerDispatcher:
             import numpy as np
 
             mock_ce_instance = MagicMock()
+            # predict() returns already-normalized [0,1] scores (activation_fn=Sigmoid
+            # is set on the CrossEncoder, so the real model returns sigmoid(logit))
             mock_ce_instance.predict.return_value = np.array([0.2, 0.9, 0.5])
             MockCE.return_value = mock_ce_instance
 
@@ -38,7 +40,8 @@ class TestRerankerDispatcher:
 
             output = dispatcher.rerank("query", results)
 
-            assert output[0].score == 0.9
+            # highest score in the mock output is 0.9, used as-is
+            assert output[0].score == pytest.approx(0.9)
 
     def test_llm_method_requires_llm_provider(self) -> None:
         config = RerankingConfig(enabled=True, method="llm")
