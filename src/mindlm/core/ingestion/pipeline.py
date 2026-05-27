@@ -1,5 +1,4 @@
 import hashlib
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -164,14 +163,9 @@ class IngestionPipeline:
             or not self._contextualizer.chunk_context_enabled
         ):
             return []
-        max_workers = min(len(chunks), self._config.contextual_retrieval.max_workers)
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            return list(
-                executor.map(
-                    lambda c: self._contextualizer.contextualize(document_text, c.text),  # type: ignore[union-attr]
-                    chunks,
-                )
-            )
+        return [
+            self._contextualizer.contextualize(document_text, c.text) for c in chunks
+        ]
 
     def _check_allowed_path(self, path: Path) -> None:
         allowed = Path(self._config.ingestion.allowed_base_dir).resolve()

@@ -38,15 +38,6 @@ class TestContextualRetrievalConfig:
         assert config.chunk_context_enabled is False
         assert config.document_summary_enabled is True
 
-    def test_max_workers_defaults_to_8(self) -> None:
-        config = ContextualRetrievalConfig()
-
-        assert config.max_workers == 8
-
-    def test_max_workers_must_be_positive(self) -> None:
-        with pytest.raises(ValueError, match="max_workers"):
-            ContextualRetrievalConfig(max_workers=0)
-
 
 class TestChunkingConfigValidator:
     def test_recursive_strategy_is_valid(self) -> None:

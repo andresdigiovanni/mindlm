@@ -78,7 +78,6 @@ reranking:
 contextual_retrieval:
   chunk_context_enabled: true  # situational context sentence per chunk
   document_summary_enabled: true  # one-sentence summary per document (cheap)
-  max_workers: 8
 
 # ── Query Processing Pipeline ───────────────────────────────
 # Optional query transformations applied before retrieval.
