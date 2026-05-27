@@ -99,6 +99,8 @@ query_processing:
     max_subqueries: 4      # 2–10
   step_back:               # generate a broader "step-back" question first
     enabled: false
+  planner:               # adaptive LLM planner: selects which processors to run per query
+    enabled: false       # when true, LLM classifies each query and picks the optimal processor subset
 
 # ── Observability ────────────────────────────────────────────
 # Optional Langfuse tracing for the full RAG pipeline.

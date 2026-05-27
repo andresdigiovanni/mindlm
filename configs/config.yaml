@@ -85,6 +85,8 @@ query_processing:
     max_subqueries: 4
   step_back:
     enabled: true
+  planner:            # adaptive LLM planner: selects which processors to run per query
+    enabled: true     # when true, LLM classifies each query and picks the optimal processor subset
 
 # ── Observability ────────────────────────────────────────────
 

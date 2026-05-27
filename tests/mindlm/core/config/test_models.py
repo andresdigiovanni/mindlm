@@ -7,6 +7,7 @@ from mindlm.core.config.models import (
     MultiQueryConfig,
     ObservabilityConfig,
     QueryDecompositionConfig,
+    QueryPlannerConfig,
     QueryProcessingConfig,
     RAGConfig,
 )
@@ -110,6 +111,7 @@ class TestQueryProcessingConfigDefaults:
         assert config.multi_query.enabled is False
         assert config.decomposition.enabled is False
         assert config.step_back.enabled is False
+        assert config.planner.enabled is False
 
     def test_multi_query_num_variants_minimum_2(self) -> None:
         with pytest.raises(ValueError, match="num_variants"):
@@ -215,3 +217,19 @@ class TestRAGConfigSemanticModelValidator:
         )
 
         assert config.chunking.strategy == "fixed"
+
+
+class TestQueryPlannerConfig:
+    def test_should_be_disabled_when_instantiated_without_arguments(self) -> None:
+        assert QueryPlannerConfig().enabled is False
+
+    def test_should_be_enabled_when_instantiated_with_enabled_true(self) -> None:
+        assert QueryPlannerConfig(enabled=True).enabled is True
+
+    def test_should_be_present_when_accessing_query_processing_config(self) -> None:
+        assert isinstance(QueryProcessingConfig().planner, QueryPlannerConfig)
+
+    def test_should_be_disabled_when_query_processing_config_instantiated_without_arguments(
+        self,
+    ) -> None:
+        assert QueryProcessingConfig().planner.enabled is False

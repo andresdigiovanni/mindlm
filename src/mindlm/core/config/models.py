@@ -128,6 +128,10 @@ class StepBackConfig(BaseModel):
     enabled: bool = False
 
 
+class QueryPlannerConfig(BaseModel):
+    enabled: bool = False
+
+
 class QueryProcessingConfig(BaseModel):
     rewriting: QueryRewritingConfig = QueryRewritingConfig()
     expansion: QueryExpansionConfig = QueryExpansionConfig()
@@ -135,6 +139,7 @@ class QueryProcessingConfig(BaseModel):
     multi_query: MultiQueryConfig = MultiQueryConfig()
     decomposition: QueryDecompositionConfig = QueryDecompositionConfig()
     step_back: StepBackConfig = StepBackConfig()
+    planner: QueryPlannerConfig = QueryPlannerConfig()
 
 
 class ObservabilityConfig(BaseModel):

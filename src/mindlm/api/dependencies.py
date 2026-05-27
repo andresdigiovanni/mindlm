@@ -15,6 +15,7 @@ from mindlm.core.ingestion.contextualizer import Contextualizer
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
 from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
+from mindlm.core.query_processing.planner import QueryPlanner
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
 from mindlm.core.retrieval.context_resolver import ContextResolver
 from mindlm.core.retrieval.fusion import FusionEngine
@@ -68,7 +69,9 @@ def get_retriever() -> RetrievalPipeline:
 
 @functools.lru_cache(maxsize=1)
 def get_query_processor() -> QueryProcessorDispatcher:
-    return QueryProcessorDispatcher(get_config().query_processing)
+    config = get_config()
+    planner = QueryPlanner() if config.query_processing.planner.enabled else None
+    return QueryProcessorDispatcher(config.query_processing, planner=planner)
 
 
 def get_reranker() -> RerankerDispatcher:

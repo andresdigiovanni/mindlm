@@ -281,6 +281,12 @@ Per-processor config keys:
 | `num_variants` | int (2–10) | `3` | `multi_query` only |
 | `max_subqueries` | int (2–10) | `4` | `decomposition` only |
 
+**Adaptive planner** (`query_processing.planner.enabled`): when `true`, a `QueryPlanner` makes one LLM call before the processor fan-out to select which processors are appropriate for the query. Processors the planner excludes are skipped even if individually `enabled`. Disabled by default (`false`).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `query_processing.planner.enabled` | bool | `false` | Enable LLM-based query planner; selects active processors per query |
+
 Example — enable query rewriting:
 
 ```yaml

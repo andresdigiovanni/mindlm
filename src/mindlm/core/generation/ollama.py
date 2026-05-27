@@ -61,19 +61,24 @@ class OllamaProvider(LLMProvider):
                 f"Ollama not available at {self._config.base_url}. "
                 "Verify that the service is running."
             )
-        response = self._client.post(
-            "/api/chat",
-            json={
-                "model": self._config.model,
-                "messages": messages,
-                "stream": False,
-                "options": {
-                    "temperature": self._config.temperature,
-                    "num_predict": self._config.max_tokens,
+        try:
+            response = self._client.post(
+                "/api/chat",
+                json={
+                    "model": self._config.model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {
+                        "temperature": self._config.temperature,
+                        "num_predict": self._config.max_tokens,
+                    },
                 },
-            },
-        )
-        data = response.json()
+            )
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LLMUnavailableError(
+                f"Ollama request failed for model '{self._config.model}': {exc}"
+            ) from exc
         if "error" in data:
             raise LLMUnavailableError(
                 f"Ollama error for model '{self._config.model}': {data['error']}. "
