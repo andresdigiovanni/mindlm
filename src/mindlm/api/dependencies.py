@@ -8,9 +8,6 @@ from mindlm.core.config.models import RAGConfig
 from mindlm.core.context.compressor import ContextualCompressor
 from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
 from mindlm.core.generation.ollama import OllamaProvider
-from mindlm.core.graph.base import GraphStore
-from mindlm.core.graph.dispatcher import build_graph_store
-from mindlm.core.graph.extractor import EntityExtractor
 from mindlm.core.ingestion.contextualizer import Contextualizer
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
@@ -19,7 +16,6 @@ from mindlm.core.query_processing.planner import QueryPlanner
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
 from mindlm.core.retrieval.context_resolver import ContextResolver
 from mindlm.core.retrieval.fusion import FusionEngine
-from mindlm.core.retrieval.graph_augmenter import GraphAugmenter
 from mindlm.core.retrieval.pipeline import RetrievalPipeline
 from mindlm.core.retrieval.retriever import Retriever
 from mindlm.core.synchronization.synchronizer import Synchronizer
@@ -50,7 +46,7 @@ def get_retriever() -> RetrievalPipeline:
     """Build the full retrieval pipeline with all configured components.
 
     Returns:
-        RetrievalPipeline wiring Retriever → FusionEngine → ContextResolver → GraphAugmenter
+        RetrievalPipeline wiring Retriever → FusionEngine → ContextResolver
     """
     config = get_config()
     raw_retriever = Retriever(
@@ -58,13 +54,7 @@ def get_retriever() -> RetrievalPipeline:
     )
     fusion = FusionEngine(raw_retriever, get_query_processor(), get_llm_provider())
     resolver = ContextResolver(config.chunking)
-    graph_store = get_graph_store()
-    augmenter = (
-        GraphAugmenter(graph_store, get_vectorstore())
-        if graph_store is not None
-        else None
-    )
-    return RetrievalPipeline(config.retrieval, fusion, resolver, augmenter)
+    return RetrievalPipeline(config.retrieval, fusion, resolver)
 
 
 @functools.lru_cache(maxsize=1)
@@ -89,17 +79,6 @@ def get_contextualizer() -> Contextualizer | None:
     return Contextualizer(cr, get_llm_provider())
 
 
-def get_graph_store() -> GraphStore | None:
-    return build_graph_store(get_config().graph_rag)
-
-
-def get_entity_extractor() -> EntityExtractor | None:
-    config = get_config()
-    if not config.graph_rag.enabled:
-        return None
-    return EntityExtractor(get_llm_provider())
-
-
 def get_pipeline() -> IngestionPipeline:
     config = get_config()
     parser = ParserDispatcher(config.ingestion)
@@ -111,8 +90,6 @@ def get_pipeline() -> IngestionPipeline:
         get_embedding_provider(),
         get_vectorstore(),
         contextualizer=get_contextualizer(),
-        entity_extractor=get_entity_extractor(),
-        graph_store=get_graph_store(),
     )
 
 

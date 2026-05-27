@@ -63,23 +63,3 @@ class SyncResult:
     skipped: int = 0
     chunks: int = 0
     errors: list[str] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class Entity:
-    id: str
-    name: str
-    type: str
-    description: str
-    source_id: str  # chunk ID (Point.id) that produced this entity
-
-
-@dataclass(frozen=True)
-class Relationship:
-    id: str
-    source_entity_id: str
-    target_entity_id: str
-    type: str
-    description: str
-    weight: float  # 0.0-1.0
-    source_id: str  # chunk ID that produced this relationship

@@ -6,13 +6,12 @@ from mindlm.core.config.models import RetrievalConfig
 from mindlm.core.models import Result
 from mindlm.core.retrieval.context_resolver import ContextResolver
 from mindlm.core.retrieval.fusion import FusionEngine
-from mindlm.core.retrieval.graph_augmenter import GraphAugmenter
 
 
 class RetrievalPipeline:
     """Orchestrates the full retrieval pipeline.
 
-    Pipeline: FusionEngine → ContextResolver → GraphAugmenter (optional)
+    Pipeline: FusionEngine → ContextResolver
     """
 
     def __init__(
@@ -20,12 +19,10 @@ class RetrievalPipeline:
         config: RetrievalConfig,
         fusion: FusionEngine,
         context_resolver: ContextResolver,
-        graph_augmenter: GraphAugmenter | None = None,
     ) -> None:
         self._config = config
         self._fusion = fusion
         self._context_resolver = context_resolver
-        self._graph_augmenter = graph_augmenter
 
     @observe(name="retrieve")
     def retrieve(
@@ -55,6 +52,4 @@ class RetrievalPipeline:
         )
         results = self._fusion.fuse(query, filters, effective_top_k)
         results = self._context_resolver.resolve(results)
-        if self._graph_augmenter is not None:
-            results = self._graph_augmenter.augment(results, effective_top_k)
         return results

@@ -12,14 +12,12 @@ from mindlm.core.config.loader import load_config
 from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
 from mindlm.core.exceptions import LLMUnavailableError
 from mindlm.core.generation.ollama import OllamaProvider
-from mindlm.core.graph.dispatcher import build_graph_store
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
 from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
 from mindlm.core.retrieval.context_resolver import ContextResolver
 from mindlm.core.retrieval.fusion import FusionEngine
-from mindlm.core.retrieval.graph_augmenter import GraphAugmenter
 from mindlm.core.retrieval.pipeline import RetrievalPipeline
 from mindlm.core.retrieval.retriever import Retriever
 from mindlm.core.synchronization.synchronizer import Synchronizer
@@ -42,13 +40,7 @@ def _build_components() -> tuple[
     raw_retriever = Retriever(config.retrieval, vectorstore, embedding_provider)
     fusion = FusionEngine(raw_retriever, query_processor, llm)
     resolver = ContextResolver(config.chunking)
-    graph_store = build_graph_store(config.graph_rag)
-    augmenter = (
-        GraphAugmenter(graph_store, vectorstore) if graph_store is not None else None
-    )
-    retrieval_pipeline = RetrievalPipeline(
-        config.retrieval, fusion, resolver, augmenter
-    )
+    retrieval_pipeline = RetrievalPipeline(config.retrieval, fusion, resolver)
     reranker = RerankerDispatcher(config.reranking, embedding_provider)
     parser = ParserDispatcher(config.ingestion)
     chunker = ChunkerDispatcher(config.chunking, embedding_provider)

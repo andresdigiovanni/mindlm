@@ -12,15 +12,11 @@ from mindlm.core.chunking.dispatcher import ChunkerDispatcher
 from mindlm.core.chunking.strategies.fixed import FixedChunker
 from mindlm.core.config.models import ChunkingConfig, RAGConfig
 from mindlm.core.embeddings.base import EmbeddingProvider
-from mindlm.core.graph.base import GraphStore
-from mindlm.core.graph.extractor import EntityExtractor
 from mindlm.core.ingestion.contextualizer import Contextualizer
 from mindlm.core.models import (
     Chunk,
-    Entity,
     ParsedDocument,
     Point,
-    Relationship,
     SparseVector,
 )
 from mindlm.core.parsing.dispatcher import ParserDispatcher
@@ -36,21 +32,13 @@ class IngestionPipeline:
         embedding_provider: EmbeddingProvider,
         vectorstore: VectorStore,
         contextualizer: Contextualizer | None = None,
-        entity_extractor: EntityExtractor | None = None,
-        graph_store: GraphStore | None = None,
     ) -> None:
-        if entity_extractor is not None and graph_store is None:
-            raise ValueError(
-                "graph_store is required when entity_extractor is provided"
-            )
         self._config = config
         self._parser = parser
         self._chunker = chunker
         self._embedding_provider = embedding_provider
         self._vectorstore = vectorstore
         self._contextualizer = contextualizer
-        self._entity_extractor = entity_extractor
-        self._graph_store = graph_store
         self._bm25: Bm25 | None = None
 
     @observe(name="ingest")
@@ -78,7 +66,6 @@ class IngestionPipeline:
         )
         contexts = self._get_chunk_contexts(text, chunks)
         point_ids = [str(uuid4()) for _ in chunks]
-        self._extract_and_store_entities(list(zip(chunks, point_ids, strict=True)))
         vectors = self._embedding_provider.embed([c.text for c in chunks])
         use_sparse = self._config.retrieval.strategy == "hybrid"
         points = [
@@ -147,9 +134,6 @@ class IngestionPipeline:
             ]
             contexts = self._get_chunk_contexts(text, adjusted_chunks)
             child_point_ids = [str(uuid4()) for _ in adjusted_chunks]
-            self._extract_and_store_entities(
-                list(zip(adjusted_chunks, child_point_ids, strict=True))
-            )
             child_texts = [c.text for c in adjusted_chunks]
             child_vectors = self._embedding_provider.embed(child_texts)
             for i, child in enumerate(adjusted_chunks):
@@ -173,24 +157,6 @@ class IngestionPipeline:
         if all_points:
             self._vectorstore.upsert(all_points)
         return len(all_points)
-
-    def _extract_and_store_entities(
-        self, chunk_point_pairs: list[tuple[Chunk, str]]
-    ) -> None:
-        if self._entity_extractor is None or self._graph_store is None:
-            return
-        all_entities: list[Entity] = []
-        all_relationships: list[Relationship] = []
-        for chunk, point_id in chunk_point_pairs:
-            entities, relationships = self._entity_extractor.extract(
-                chunk.text, point_id
-            )
-            all_entities.extend(entities)
-            all_relationships.extend(relationships)
-        if all_entities:
-            self._graph_store.upsert_entities(all_entities)
-        if all_relationships:
-            self._graph_store.upsert_relationships(all_relationships)
 
     def _get_chunk_contexts(self, document_text: str, chunks: list[Chunk]) -> list[str]:
         if (

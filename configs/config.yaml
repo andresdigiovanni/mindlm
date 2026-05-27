@@ -97,18 +97,3 @@ observability:
   host: http://langfuse:3000   # use http://localhost:3000 outside Docker
   flush_at: 15
   flush_interval: 0.5
-
-# ── GraphRAG (opt-in) ────────────────────────────────────────────────────────
-# Knowledge-graph-augmented retrieval. At ingest time, entities and relationships
-# are extracted from each chunk and stored in a graph DB. At query time, the graph
-# is traversed to expand vector search results with related context.
-# Set "enabled: true" to activate. Neo4j must be running (included in docker-compose.yml).
-#
-graph_rag:
-  enabled: false
-  store:
-    provider: neo4j
-    host: neo4j
-    port: 7687
-    username: neo4j
-    password: neo4j_password

@@ -152,19 +152,6 @@ class ObservabilityConfig(BaseModel):
     flush_interval: float = Field(default=0.5, gt=0)
 
 
-class GraphStoreConfig(BaseModel):
-    provider: Literal["neo4j"] = "neo4j"
-    host: str = "neo4j"
-    port: int = 7687
-    username: str = "neo4j"
-    password: str = "neo4j_password"  # noqa: S105
-
-
-class GraphRAGConfig(BaseModel):
-    enabled: bool = False
-    store: GraphStoreConfig = GraphStoreConfig()
-
-
 class CompressionConfig(BaseModel):
     enabled: bool = False
 
@@ -182,7 +169,6 @@ class RAGConfig(BaseModel):
     )
     query_processing: QueryProcessingConfig = QueryProcessingConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
-    graph_rag: GraphRAGConfig = GraphRAGConfig()
     compression: CompressionConfig = CompressionConfig()
 
     @model_validator(mode="after")
