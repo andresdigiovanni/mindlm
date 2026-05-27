@@ -57,6 +57,7 @@ class TestSearchEndpoint:
         mock_reranker.rerank.return_value = [_result()]
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_compressor] = lambda: None
         app.dependency_overrides[deps.get_config] = lambda: _mock_config()
 
         client = TestClient(app)
@@ -75,6 +76,7 @@ class TestSearchEndpoint:
         mock_llm.chat.return_value = "answer"
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_compressor] = lambda: None
         app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
         app.dependency_overrides[deps.get_config] = lambda: _mock_config()
 
@@ -93,6 +95,7 @@ class TestSearchEndpoint:
         mock_llm.chat.side_effect = LLMUnavailableError("Ollama down")
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_compressor] = lambda: None
         app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
         app.dependency_overrides[deps.get_config] = lambda: _mock_config()
 
@@ -101,6 +104,91 @@ class TestSearchEndpoint:
 
         assert response.status_code == 503
         assert response.json()["error"] == "llm_unavailable"
+
+    def test_search_applies_compression_when_compressor_present(self) -> None:
+        mock_compressor = MagicMock()
+        mock_compressor.compress.return_value = [
+            Result(
+                id="1",
+                score=0.9,
+                payload={"content": "compressed", "source": "doc.pdf"},
+            )
+        ]
+        app.dependency_overrides[deps.get_retriever] = lambda: MagicMock(
+            retrieve=MagicMock(
+                return_value=[
+                    Result(
+                        id="1",
+                        score=0.9,
+                        payload={"content": "original", "source": "doc.pdf"},
+                    )
+                ]
+            )
+        )
+        app.dependency_overrides[deps.get_reranker] = lambda: MagicMock(
+            rerank=MagicMock(
+                return_value=[
+                    Result(
+                        id="1",
+                        score=0.9,
+                        payload={"content": "original", "source": "doc.pdf"},
+                    )
+                ]
+            )
+        )
+        app.dependency_overrides[deps.get_compressor] = lambda: mock_compressor
+        app.dependency_overrides[deps.get_config] = lambda: MagicMock(
+            retrieval=MagicMock(score_threshold=None)
+        )
+        client = TestClient(app)
+        response = client.post("/search", json={"query": "test query"})
+        assert response.status_code == 200
+        mock_compressor.compress.assert_called_once()
+        assert mock_compressor.compress.call_args[0][0] == "test query"
+
+    def test_ask_applies_compression_when_compressor_present(self) -> None:
+        mock_compressor = MagicMock()
+        mock_compressor.compress.return_value = [
+            Result(
+                id="1",
+                score=0.9,
+                payload={"content": "compressed", "source": "doc.pdf"},
+            )
+        ]
+        app.dependency_overrides[deps.get_retriever] = lambda: MagicMock(
+            retrieve=MagicMock(
+                return_value=[
+                    Result(
+                        id="1",
+                        score=0.9,
+                        payload={"content": "original", "source": "doc.pdf"},
+                    )
+                ]
+            )
+        )
+        app.dependency_overrides[deps.get_reranker] = lambda: MagicMock(
+            rerank=MagicMock(
+                return_value=[
+                    Result(
+                        id="1",
+                        score=0.9,
+                        payload={"content": "original", "source": "doc.pdf"},
+                    )
+                ]
+            )
+        )
+        app.dependency_overrides[deps.get_compressor] = lambda: mock_compressor
+        app.dependency_overrides[deps.get_config] = lambda: MagicMock(
+            retrieval=MagicMock(score_threshold=None)
+        )
+        app.dependency_overrides[deps.get_llm_provider] = lambda: MagicMock(
+            chat=MagicMock(return_value="answer")
+        )
+        client = TestClient(app)
+        response = client.post("/ask", json={"question": "test question"})
+        assert response.status_code == 200
+        mock_compressor.compress.assert_called_once()
+        assert mock_compressor.compress.call_args[0][0] == "test question"
 
 
 class TestFormatContext:
@@ -201,6 +289,7 @@ class TestScoreThreshold:
         mock_reranker.rerank.return_value = reranked
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_compressor] = lambda: None
         app.dependency_overrides[deps.get_config] = lambda: _mock_config(
             config_threshold
         )

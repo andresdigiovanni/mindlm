@@ -5,7 +5,6 @@ from mindlm.core.embeddings.base import EmbeddingProvider
 from mindlm.core.generation.base import LLMProvider
 from mindlm.core.models import Result
 from mindlm.core.reranking.base import BaseReranker
-from mindlm.core.reranking.compressor import ContextualCompressor
 from mindlm.core.reranking.cross_encoder import CrossEncoderReranker
 from mindlm.core.reranking.llm_reranker import LLMReranker
 from mindlm.core.reranking.mmr import MMRReranker
@@ -37,29 +36,26 @@ class RerankerDispatcher:
                 if self._llm is None:
                     raise ValueError("LLMProvider required for LLM reranking")
                 return LLMReranker(self._llm)
-            case "compression":
-                if self._llm is None:
-                    raise ValueError("LLMProvider required for compression reranking")
-                return ContextualCompressor(self._llm)
             case _:
                 raise ValueError(f"Unknown reranking method: {self._config.method}")
 
     @observe(name="rerank")
     def rerank(self, query: str, results: list[Result]) -> list[Result]:
-        langfuse_context.update_current_observation(
-            metadata={
-                "enabled": self._config.enabled,
-                "method": self._config.method if self._config.enabled else None,
-                "input_count": len(results),
-            }
-        )
         if not self._config.enabled or self._reranker is None:
+            langfuse_context.update_current_observation(
+                metadata={
+                    "enabled": False,
+                    "method": None,
+                    "input_count": len(results),
+                    "output_count": len(results),
+                }
+            )
             return results
         reranked = self._reranker.rerank(query, results)
         langfuse_context.update_current_observation(
             metadata={
-                "enabled": self._config.enabled,
-                "method": self._config.method if self._config.enabled else None,
+                "enabled": True,
+                "method": self._config.method,
                 "input_count": len(results),
                 "output_count": len(reranked),
             }

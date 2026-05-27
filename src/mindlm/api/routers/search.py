@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from langfuse.decorators import observe
 
 from mindlm.api.dependencies import (
+    get_compressor,
     get_config,
     get_llm_provider,
     get_reranker,
@@ -16,10 +17,11 @@ from mindlm.api.schemas import (
     SourceRef,
 )
 from mindlm.core.config.models import RAGConfig
+from mindlm.core.context.compressor import ContextualCompressor
 from mindlm.core.generation.base import LLMProvider
 from mindlm.core.models import Result
-from mindlm.core.reranking.base import BaseReranker
-from mindlm.core.retrieval.retriever import Retriever
+from mindlm.core.reranking.dispatcher import RerankerDispatcher
+from mindlm.core.retrieval.pipeline import RetrievalPipeline
 
 
 def _format_context(results: list[Result]) -> str:
@@ -58,9 +60,10 @@ router = APIRouter()
 @observe(name="search")
 async def search(
     request: SearchRequest,
-    retriever: Retriever = Depends(get_retriever),
-    reranker: BaseReranker = Depends(get_reranker),
+    retriever: RetrievalPipeline = Depends(get_retriever),
+    reranker: RerankerDispatcher = Depends(get_reranker),
     config: RAGConfig = Depends(get_config),
+    compressor: ContextualCompressor | None = Depends(get_compressor),
 ) -> SearchResponse:
     results = retriever.retrieve(
         request.query,
@@ -68,6 +71,8 @@ async def search(
         top_k=request.top_k,
     )
     results = reranker.rerank(request.query, results)
+    if compressor is not None:
+        results = compressor.compress(request.query, results)
     threshold = (
         request.score_threshold
         if request.score_threshold is not None
@@ -93,10 +98,11 @@ async def search(
 @observe(name="ask")
 async def ask(
     request: AskRequest,
-    retriever: Retriever = Depends(get_retriever),
-    reranker: BaseReranker = Depends(get_reranker),
+    retriever: RetrievalPipeline = Depends(get_retriever),
+    reranker: RerankerDispatcher = Depends(get_reranker),
     llm: LLMProvider = Depends(get_llm_provider),
     config: RAGConfig = Depends(get_config),
+    compressor: ContextualCompressor | None = Depends(get_compressor),
 ) -> AskResponse:
     results = retriever.retrieve(
         request.question,
@@ -104,6 +110,8 @@ async def ask(
         top_k=request.top_k,
     )
     results = reranker.rerank(request.question, results)
+    if compressor is not None:
+        results = compressor.compress(request.question, results)
     threshold = (
         request.score_threshold
         if request.score_threshold is not None

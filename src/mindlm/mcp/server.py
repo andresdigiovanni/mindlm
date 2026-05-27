@@ -12,17 +12,26 @@ from mindlm.core.config.loader import load_config
 from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
 from mindlm.core.exceptions import LLMUnavailableError
 from mindlm.core.generation.ollama import OllamaProvider
+from mindlm.core.graph.dispatcher import build_graph_store
 from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
 from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
+from mindlm.core.retrieval.context_resolver import ContextResolver
+from mindlm.core.retrieval.fusion import FusionEngine
+from mindlm.core.retrieval.graph_augmenter import GraphAugmenter
+from mindlm.core.retrieval.pipeline import RetrievalPipeline
 from mindlm.core.retrieval.retriever import Retriever
 from mindlm.core.synchronization.synchronizer import Synchronizer
 from mindlm.core.vectorstore.qdrant import QdrantVectorStore
 
 
 def _build_components() -> tuple[
-    Retriever, RerankerDispatcher, OllamaProvider, Synchronizer, QdrantVectorStore
+    RetrievalPipeline,
+    RerankerDispatcher,
+    OllamaProvider,
+    Synchronizer,
+    QdrantVectorStore,
 ]:
     config_path = os.environ.get("CONFIG_PATH", "config.yaml")
     config = load_config(Path(config_path))
@@ -30,13 +39,15 @@ def _build_components() -> tuple[
     vectorstore = QdrantVectorStore(config.vector_store)
     llm = OllamaProvider(config.llm)
     query_processor = QueryProcessorDispatcher(config.query_processing)
-    retriever = Retriever(
-        config.retrieval,
-        vectorstore,
-        embedding_provider,
-        llm=llm,
-        query_processor=query_processor,
-        resolve_parents=config.chunking.parent_chunk_size is not None,
+    raw_retriever = Retriever(config.retrieval, vectorstore, embedding_provider)
+    fusion = FusionEngine(raw_retriever, query_processor, llm)
+    resolver = ContextResolver(config.chunking)
+    graph_store = build_graph_store(config.graph_rag)
+    augmenter = (
+        GraphAugmenter(graph_store, vectorstore) if graph_store is not None else None
+    )
+    retrieval_pipeline = RetrievalPipeline(
+        config.retrieval, fusion, resolver, augmenter
     )
     reranker = RerankerDispatcher(config.reranking, embedding_provider)
     parser = ParserDispatcher(config.ingestion)
@@ -45,11 +56,11 @@ def _build_components() -> tuple[
         config, parser, chunker, embedding_provider, vectorstore
     )
     synchronizer = Synchronizer(vectorstore, pipeline)
-    return retriever, reranker, llm, synchronizer, vectorstore
+    return retrieval_pipeline, reranker, llm, synchronizer, vectorstore
 
 
 server: Server = Server("mindlm-rag")
-_retriever: Retriever | None = None
+_retriever: RetrievalPipeline | None = None
 _reranker: RerankerDispatcher | None = None
 _llm: OllamaProvider | None = None
 _synchronizer: Synchronizer | None = None
@@ -57,7 +68,11 @@ _vectorstore: QdrantVectorStore | None = None
 
 
 def _get_components() -> tuple[
-    Retriever, RerankerDispatcher, OllamaProvider, Synchronizer, QdrantVectorStore
+    RetrievalPipeline,
+    RerankerDispatcher,
+    OllamaProvider,
+    Synchronizer,
+    QdrantVectorStore,
 ]:
     global _retriever, _reranker, _llm, _synchronizer, _vectorstore
     if _retriever is None:

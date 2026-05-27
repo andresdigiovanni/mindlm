@@ -76,7 +76,7 @@ class RetrievalConfig(BaseModel):
 
 class RerankingConfig(BaseModel):
     enabled: bool = False
-    method: Literal["cross_encoder", "mmr", "llm", "compression"] | None = None
+    method: Literal["cross_encoder", "mmr", "llm"] | None = None
     model: str | None = None
 
     @model_validator(mode="after")
@@ -159,6 +159,10 @@ class GraphRAGConfig(BaseModel):
     store: GraphStoreConfig = GraphStoreConfig()
 
 
+class CompressionConfig(BaseModel):
+    enabled: bool = False
+
+
 class RAGConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     embeddings: EmbeddingsConfig = EmbeddingsConfig()
@@ -173,6 +177,7 @@ class RAGConfig(BaseModel):
     query_processing: QueryProcessingConfig = QueryProcessingConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
     graph_rag: GraphRAGConfig = GraphRAGConfig()
+    compression: CompressionConfig = CompressionConfig()
 
     @model_validator(mode="after")
     def _check_semantic_model_consistency(self) -> "RAGConfig":

@@ -5,6 +5,7 @@ from pathlib import Path
 from mindlm.core.chunking.dispatcher import ChunkerDispatcher
 from mindlm.core.config.loader import load_config
 from mindlm.core.config.models import RAGConfig
+from mindlm.core.context.compressor import ContextualCompressor
 from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
 from mindlm.core.generation.ollama import OllamaProvider
 from mindlm.core.graph.base import GraphStore
@@ -15,6 +16,10 @@ from mindlm.core.ingestion.pipeline import IngestionPipeline
 from mindlm.core.parsing.dispatcher import ParserDispatcher
 from mindlm.core.query_processing.dispatcher import QueryProcessorDispatcher
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
+from mindlm.core.retrieval.context_resolver import ContextResolver
+from mindlm.core.retrieval.fusion import FusionEngine
+from mindlm.core.retrieval.graph_augmenter import GraphAugmenter
+from mindlm.core.retrieval.pipeline import RetrievalPipeline
 from mindlm.core.retrieval.retriever import Retriever
 from mindlm.core.synchronization.synchronizer import Synchronizer
 from mindlm.core.vectorstore.qdrant import QdrantVectorStore
@@ -39,20 +44,26 @@ def get_llm_provider() -> OllamaProvider:
     return OllamaProvider(get_config().llm)
 
 
-def get_retriever() -> Retriever:
+@functools.lru_cache(maxsize=1)
+def get_retriever() -> RetrievalPipeline:
+    """Build the full retrieval pipeline with all configured components.
+
+    Returns:
+        RetrievalPipeline wiring Retriever → FusionEngine → ContextResolver → GraphAugmenter
+    """
     config = get_config()
-    return Retriever(
-        config.retrieval,
-        get_vectorstore(),
-        get_embedding_provider(),
-        llm=get_llm_provider(),
-        query_processor=get_query_processor(),
-        # These two flags are mutually exclusive; ChunkingConfig._check_config
-        # prevents parent_chunk_size + strategy='sentence_window' at config load time.
-        resolve_parents=config.chunking.parent_chunk_size is not None,
-        resolve_windows=config.chunking.strategy == "sentence_window",
-        graph_store=get_graph_store(),
+    raw_retriever = Retriever(
+        config.retrieval, get_vectorstore(), get_embedding_provider()
     )
+    fusion = FusionEngine(raw_retriever, get_query_processor(), get_llm_provider())
+    resolver = ContextResolver(config.chunking)
+    graph_store = get_graph_store()
+    augmenter = (
+        GraphAugmenter(graph_store, get_vectorstore())
+        if graph_store is not None
+        else None
+    )
+    return RetrievalPipeline(config.retrieval, fusion, resolver, augmenter)
 
 
 @functools.lru_cache(maxsize=1)
@@ -105,3 +116,15 @@ def get_pipeline() -> IngestionPipeline:
 def get_synchronizer() -> Synchronizer:
     config = get_config()
     return Synchronizer(get_vectorstore(), get_pipeline(), config.ingestion.source_type)
+
+
+def get_compressor() -> ContextualCompressor | None:
+    """Build compressor if compression is enabled.
+
+    Returns:
+        ContextualCompressor instance, or None if compression disabled
+    """
+    config = get_config()
+    if not config.compression.enabled:
+        return None
+    return ContextualCompressor(get_llm_provider())
