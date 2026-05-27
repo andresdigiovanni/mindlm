@@ -545,6 +545,25 @@ class TestIngestionPipelineContextualizer:
         points = vs.upsert.call_args[0][0]
         assert all("document_summary" not in p.payload for p in points)
 
+    def test_chunk_context_order_preserved_when_chunks_have_distinct_contexts(
+        self, tmp_path: Path
+    ) -> None:
+        ctx = MagicMock()
+        ctx.chunk_context_enabled = True
+        ctx.contextualize.side_effect = lambda _doc, chunk: f"ctx:{chunk}"
+        ctx.summarize.return_value = ""
+        pipeline, _p, _c, _ep, vs = self._make_pipeline_with_contextualizer(
+            contextualizer=ctx
+        )
+        doc = tmp_path / "doc.md"
+        doc.write_text("content", encoding="utf-8")
+
+        pipeline.ingest(doc)
+
+        points = vs.upsert.call_args[0][0]
+        assert points[0].payload["chunk_context"] == "ctx:chunk 1"
+        assert points[1].payload["chunk_context"] == "ctx:chunk 2"
+
 
 class TestIngestionPipelineGraphExtraction:
     def _make_pipeline_with_graph(

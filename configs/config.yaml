@@ -65,6 +65,7 @@ reranking:
 contextual_retrieval:
   chunk_context_enabled: false
   document_summary_enabled: true
+  max_workers: 8
 
 # ── Query Processing Pipeline ───────────────────────────────
 # All processors enabled — each generates additional query variants

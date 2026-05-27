@@ -89,6 +89,7 @@ class RerankingConfig(BaseModel):
 class ContextualRetrievalConfig(BaseModel):
     chunk_context_enabled: bool = False
     document_summary_enabled: bool = False
+    max_workers: int = Field(default=8, gt=0)
     prompt_template: str = (
         "Here is the full document:\n<document>\n{document}\n</document>\n\n"
         "Here is a chunk from the document:\n<chunk>\n{chunk}\n</chunk>\n\n"
