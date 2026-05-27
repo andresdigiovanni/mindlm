@@ -274,6 +274,53 @@ class TestExtractSources:
         assert isinstance(sources[0].char_start, int)
 
 
+class TestSearchResultMatchedChunk:
+    def _override(self, result: Result) -> None:
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = [result]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.return_value = [result]
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_config] = lambda: _mock_config()
+
+    def test_matched_chunk_included_in_response_when_present(self) -> None:
+        result = Result(
+            id="1",
+            score=0.9,
+            payload={
+                "content": "parent text",
+                "matched_chunk": "original chunk",
+                "source": "/doc.pdf",
+                "chunk_index": 0,
+            },
+        )
+        self._override(result)
+        client = TestClient(app)
+
+        response = client.post("/search", json={"query": "test"})
+
+        assert response.status_code == 200
+        item = response.json()["results"][0]
+        assert item["matched_chunk"] == "original chunk"
+
+    def test_matched_chunk_is_none_when_absent_from_payload(self) -> None:
+        result = Result(
+            id="1",
+            score=0.9,
+            payload={"content": "text", "source": "/doc.pdf", "chunk_index": 0},
+        )
+        self._override(result)
+        client = TestClient(app)
+
+        response = client.post("/search", json={"query": "test"})
+
+        assert response.status_code == 200
+        item = response.json()["results"][0]
+        assert item["matched_chunk"] is None
+
+
 class TestScoreThreshold:
     """Threshold is applied after reranking on the reranker's score scale."""
 

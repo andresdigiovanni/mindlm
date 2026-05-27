@@ -32,6 +32,7 @@ class SearchResultItem(BaseModel):
     content: str
     score: float
     source: str
+    matched_chunk: str | None = None
     metadata: dict[str, Any]
 
 

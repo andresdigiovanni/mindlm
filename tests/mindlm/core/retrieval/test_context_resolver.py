@@ -43,6 +43,18 @@ class TestContextResolverParent:
         output = resolver.resolve(results)
         assert output[0].payload["source"] == "doc.pdf"
 
+    def test_preserves_original_content_as_matched_chunk(self) -> None:
+        resolver = _resolver(parent_chunk_size=1000)
+        results = [_result(parent_content="parent text")]
+        output = resolver.resolve(results)
+        assert output[0].payload["matched_chunk"] == "original"
+
+    def test_no_matched_chunk_when_no_parent_content(self) -> None:
+        resolver = _resolver(parent_chunk_size=1000)
+        results = [_result()]
+        output = resolver.resolve(results)
+        assert "matched_chunk" not in output[0].payload
+
     def test_empty_results_returns_empty(self) -> None:
         resolver = _resolver(parent_chunk_size=1000)
         assert resolver.resolve([]) == []
@@ -66,6 +78,18 @@ class TestContextResolverWindow:
         results = [_result(window_context="window text")]
         output = resolver.resolve(results)
         assert output[0].payload["source"] == "doc.pdf"
+
+    def test_preserves_original_content_as_matched_chunk(self) -> None:
+        resolver = _resolver(strategy="sentence_window")
+        results = [_result(window_context="window text")]
+        output = resolver.resolve(results)
+        assert output[0].payload["matched_chunk"] == "original"
+
+    def test_no_matched_chunk_when_no_window_context(self) -> None:
+        resolver = _resolver(strategy="sentence_window")
+        results = [_result()]
+        output = resolver.resolve(results)
+        assert "matched_chunk" not in output[0].payload
 
     def test_empty_results_returns_empty(self) -> None:
         resolver = _resolver(strategy="sentence_window")

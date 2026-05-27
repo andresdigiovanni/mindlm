@@ -31,7 +31,11 @@ class ContextResolver:
         resolved = []
         for r in results:
             if "parent_content" in r.payload:
-                new_payload = {**r.payload, "content": r.payload["parent_content"]}
+                new_payload = {
+                    **r.payload,
+                    "matched_chunk": r.payload["content"],
+                    "content": r.payload["parent_content"],
+                }
                 resolved.append(replace(r, payload=new_payload))
             else:
                 resolved.append(r)
@@ -41,7 +45,11 @@ class ContextResolver:
         resolved: list[Result] = []
         for r in results:
             if "window_context" in r.payload:
-                new_payload = {**r.payload, "content": r.payload["window_context"]}
+                new_payload = {
+                    **r.payload,
+                    "matched_chunk": r.payload["content"],
+                    "content": r.payload["window_context"],
+                }
                 resolved.append(replace(r, payload=new_payload))
             else:
                 resolved.append(r)

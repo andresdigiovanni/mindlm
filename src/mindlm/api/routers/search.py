@@ -85,8 +85,11 @@ async def search(
             content=r.payload.get("content", ""),
             score=r.score,
             source=r.payload.get("source", ""),
+            matched_chunk=r.payload.get("matched_chunk"),
             metadata={
-                k: v for k, v in r.payload.items() if k not in ("content", "source")
+                k: v
+                for k, v in r.payload.items()
+                if k not in ("content", "source", "matched_chunk")
             },
         )
         for r in results
