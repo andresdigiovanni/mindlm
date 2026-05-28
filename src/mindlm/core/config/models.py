@@ -155,6 +155,11 @@ class CompressionConfig(BaseModel):
     enabled: bool = False
 
 
+class IterativeRetrievalConfig(BaseModel):
+    enabled: bool = False
+    max_iterations: int = Field(default=3, ge=1, le=5)
+
+
 class RAGConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     embeddings: EmbeddingsConfig = EmbeddingsConfig()
@@ -169,6 +174,7 @@ class RAGConfig(BaseModel):
     query_processing: QueryProcessingConfig = QueryProcessingConfig()
     observability: ObservabilityConfig = ObservabilityConfig()
     compression: CompressionConfig = CompressionConfig()
+    iterative_retrieval: IterativeRetrievalConfig = IterativeRetrievalConfig()
 
     @model_validator(mode="after")
     def _check_semantic_model_consistency(self) -> "RAGConfig":

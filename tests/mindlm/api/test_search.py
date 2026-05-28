@@ -6,8 +6,9 @@ from fastapi.testclient import TestClient
 
 import mindlm.api.dependencies as deps
 from mindlm.api.main import app
-from mindlm.api.routers.search import _extract_sources, _format_context
+from mindlm.api.routers.search import _extract_sources, _format_context, _merge_results
 from mindlm.core.exceptions import LLMUnavailableError
+from mindlm.core.generation.grounding import GroundingChecker, GroundingResult
 from mindlm.core.models import Result
 
 
@@ -17,8 +18,14 @@ def clear_overrides() -> Generator[None, None, None]:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app)
+
+
 def _result(
     *,
+    id_: str = "1",
     chunk_context: str | None = None,
     document_summary: str | None = None,
     page_number: int | None = None,
@@ -40,12 +47,19 @@ def _result(
         payload["char_start"] = char_start
     if char_end is not None:
         payload["char_end"] = char_end
-    return Result(id="1", score=0.9, payload=payload)
+    return Result(id=id_, score=0.9, payload=payload)
 
 
 def _mock_config(score_threshold: float | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.retrieval.score_threshold = score_threshold
+    return cfg
+
+
+def _mock_iterative_config(max_iterations: int = 3) -> MagicMock:
+    cfg = MagicMock()
+    cfg.retrieval.score_threshold = None
+    cfg.iterative_retrieval.max_iterations = max_iterations
     return cfg
 
 
@@ -79,6 +93,7 @@ class TestSearchEndpoint:
         app.dependency_overrides[deps.get_compressor] = lambda: None
         app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
         app.dependency_overrides[deps.get_config] = lambda: _mock_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: None
 
         client = TestClient(app)
         response = client.post("/ask", json={"question": "What is RAG?"})
@@ -98,6 +113,7 @@ class TestSearchEndpoint:
         app.dependency_overrides[deps.get_compressor] = lambda: None
         app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
         app.dependency_overrides[deps.get_config] = lambda: _mock_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: None
 
         client = TestClient(app)
         response = client.post("/ask", json={"question": "test?"})
@@ -184,6 +200,7 @@ class TestSearchEndpoint:
         app.dependency_overrides[deps.get_llm_provider] = lambda: MagicMock(
             chat=MagicMock(return_value="answer")
         )
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: None
         client = TestClient(app)
         response = client.post("/ask", json={"question": "test question"})
         assert response.status_code == 200
@@ -392,3 +409,224 @@ class TestScoreThreshold:
         response = client.post("/search", json={"query": "q"})
         assert response.status_code == 200
         assert response.json()["results"] == []
+
+
+class TestMergeResults:
+    def test_should_return_new_results_when_accumulated_is_empty(self) -> None:
+        r1 = Result(id="1", score=0.9, payload={"content": "a"})
+        r2 = Result(id="2", score=0.8, payload={"content": "b"})
+
+        merged = _merge_results([], [r1, r2])
+
+        assert merged == [r1, r2]
+
+    def test_should_deduplicate_by_id(self) -> None:
+        r1 = Result(id="1", score=0.9, payload={"content": "a"})
+        r2 = Result(id="2", score=0.8, payload={"content": "b"})
+
+        merged = _merge_results([r1], [r1, r2])
+
+        assert merged == [r1, r2]
+
+    def test_should_preserve_accumulated_order(self) -> None:
+        r1 = Result(id="1", score=0.9, payload={"content": "a"})
+        r2 = Result(id="2", score=0.8, payload={"content": "b"})
+        r3 = Result(id="3", score=0.7, payload={"content": "c"})
+
+        merged = _merge_results([r2, r1], [r3])
+
+        assert merged == [r2, r1, r3]
+
+    def test_should_return_empty_when_both_empty(self) -> None:
+        merged = _merge_results([], [])
+
+        assert merged == []
+
+
+class TestAskIterativeRetrieval:
+    def test_should_answer_in_one_pass_when_grounding_checker_is_none(
+        self,
+        client: TestClient,
+    ) -> None:
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = [_result()]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.return_value = [_result()]
+        mock_llm = MagicMock()
+        mock_llm.chat.return_value = "answer"
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_config] = lambda: _mock_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: None
+
+        response = client.post("/ask", json={"question": "What is RAG?"})
+
+        assert response.status_code == 200
+        assert response.json()["answer"] == "answer"
+        mock_retriever.retrieve.assert_called_once()
+
+    def test_should_stop_on_first_iteration_when_answer_is_grounded(
+        self,
+        client: TestClient,
+    ) -> None:
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = [_result()]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.return_value = [_result()]
+        mock_llm = MagicMock()
+        mock_llm.chat.return_value = "grounded answer"
+        mock_checker = MagicMock(spec=GroundingChecker)
+        mock_checker.check.return_value = GroundingResult(
+            is_grounded=True, refined_query=None
+        )
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_config] = lambda: _mock_iterative_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: mock_checker
+
+        response = client.post("/ask", json={"question": "What is RAG?"})
+
+        assert response.status_code == 200
+        mock_retriever.retrieve.assert_called_once()
+        mock_checker.check.assert_called_once()
+
+    def test_should_refine_query_and_retrieve_again_when_not_grounded(
+        self,
+        client: TestClient,
+    ) -> None:
+        r1 = _result(id_="1")
+        r2 = _result(id_="2")
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.side_effect = [[r1], [r2]]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.side_effect = [[r1], [r2]]
+        mock_llm = MagicMock()
+        mock_llm.chat.return_value = "answer"
+        mock_checker = MagicMock(spec=GroundingChecker)
+        mock_checker.check.side_effect = [
+            GroundingResult(is_grounded=False, refined_query="refined query"),
+            GroundingResult(is_grounded=True, refined_query=None),
+        ]
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_config] = lambda: _mock_iterative_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: mock_checker
+
+        response = client.post("/ask", json={"question": "What is RAG?"})
+
+        assert response.status_code == 200
+        assert mock_retriever.retrieve.call_count == 2
+        second_call_query = mock_retriever.retrieve.call_args_list[1][0][0]
+        assert second_call_query == "refined query"
+
+    def test_should_stop_at_max_iterations_when_never_grounded(
+        self,
+        client: TestClient,
+    ) -> None:
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = [_result()]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.return_value = [_result()]
+        mock_llm = MagicMock()
+        mock_llm.chat.return_value = "answer"
+        mock_checker = MagicMock(spec=GroundingChecker)
+        mock_checker.check.return_value = GroundingResult(
+            is_grounded=False, refined_query="refine again"
+        )
+        mock_config = MagicMock()
+        mock_config.retrieval.score_threshold = None
+        mock_config.iterative_retrieval.max_iterations = 2
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: mock_checker
+        app.dependency_overrides[deps.get_config] = lambda: mock_config
+
+        response = client.post("/ask", json={"question": "What is RAG?"})
+
+        assert response.status_code == 200
+        assert mock_retriever.retrieve.call_count == 2
+
+    def test_should_deduplicate_results_across_iterations(
+        self,
+        client: TestClient,
+    ) -> None:
+        r = _result(id_="dup")
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.side_effect = [[r], [r]]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.side_effect = [[r], [r]]
+        mock_llm = MagicMock()
+        mock_llm.chat.return_value = "answer"
+        mock_checker = MagicMock(spec=GroundingChecker)
+        mock_checker.check.side_effect = [
+            GroundingResult(is_grounded=False, refined_query="another query"),
+            GroundingResult(is_grounded=True, refined_query=None),
+        ]
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_config] = lambda: _mock_iterative_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: mock_checker
+
+        response = client.post("/ask", json={"question": "What is RAG?"})
+
+        assert response.status_code == 200
+        sources = response.json()["sources"]
+        assert len(sources) == 1
+
+    def test_should_return_503_when_llm_raises_on_first_pass(
+        self,
+        client: TestClient,
+    ) -> None:
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = [_result()]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.return_value = [_result()]
+        mock_llm = MagicMock()
+        mock_llm.chat.side_effect = LLMUnavailableError("Ollama down")
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_config] = lambda: _mock_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: None
+
+        response = client.post("/ask", json={"question": "What is RAG?"})
+
+        assert response.status_code == 503
+        assert response.json()["error"] == "llm_unavailable"
+
+    def test_should_stop_when_not_grounded_but_no_refined_query(
+        self,
+        client: TestClient,
+    ) -> None:
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve.return_value = [_result()]
+        mock_reranker = MagicMock()
+        mock_reranker.rerank.return_value = [_result()]
+        mock_llm = MagicMock()
+        mock_llm.chat.return_value = "answer"
+        mock_checker = MagicMock(spec=GroundingChecker)
+        mock_checker.check.return_value = GroundingResult(
+            is_grounded=False, refined_query=None
+        )
+        app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
+        app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker
+        app.dependency_overrides[deps.get_llm_provider] = lambda: mock_llm
+        app.dependency_overrides[deps.get_compressor] = lambda: None
+        app.dependency_overrides[deps.get_config] = lambda: _mock_iterative_config()
+        app.dependency_overrides[deps.get_grounding_checker] = lambda: mock_checker
+
+        response = client.post("/ask", json={"question": "What is RAG?"})
+
+        assert response.status_code == 200
+        mock_retriever.retrieve.assert_called_once()

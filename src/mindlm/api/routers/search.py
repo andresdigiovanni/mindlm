@@ -4,6 +4,7 @@ from langfuse.decorators import observe
 from mindlm.api.dependencies import (
     get_compressor,
     get_config,
+    get_grounding_checker,
     get_llm_provider,
     get_reranker,
     get_retriever,
@@ -19,6 +20,7 @@ from mindlm.api.schemas import (
 from mindlm.core.config.models import RAGConfig
 from mindlm.core.context.compressor import ContextualCompressor
 from mindlm.core.generation.base import LLMProvider
+from mindlm.core.generation.grounding import GroundingChecker
 from mindlm.core.models import Result
 from mindlm.core.reranking.dispatcher import RerankerDispatcher
 from mindlm.core.retrieval.pipeline import RetrievalPipeline
@@ -51,6 +53,19 @@ def _extract_sources(results: list[Result]) -> list[SourceRef]:
         )
         for r in results
     ]
+
+
+def _merge_results(
+    accumulated: list[Result], new_results: list[Result]
+) -> list[Result]:
+    """Merge new_results into accumulated, deduplicating by Result.id."""
+    seen: set[str] = {r.id for r in accumulated}
+    merged = list(accumulated)
+    for r in new_results:
+        if r.id not in seen:
+            seen.add(r.id)
+            merged.append(r)
+    return merged
 
 
 router = APIRouter()
@@ -106,33 +121,57 @@ async def ask(
     llm: LLMProvider = Depends(get_llm_provider),
     config: RAGConfig = Depends(get_config),
     compressor: ContextualCompressor | None = Depends(get_compressor),
+    grounding_checker: GroundingChecker | None = Depends(get_grounding_checker),
 ) -> AskResponse:
-    results = retriever.retrieve(
-        request.question,
-        request.filters,
-        top_k=request.top_k,
+    max_iterations = (
+        config.iterative_retrieval.max_iterations
+        if grounding_checker is not None
+        else 1
     )
-    results = reranker.rerank(request.question, results)
-    if compressor is not None:
-        results = compressor.compress(request.question, results)
-    threshold = (
-        request.score_threshold
-        if request.score_threshold is not None
-        else config.retrieval.score_threshold
-    )
-    if threshold is not None:
-        results = [r for r in results if r.score >= threshold]
+    query = request.question
+    all_results: list[Result] = []
+    answer = ""
 
-    context_blocks = _format_context(results)
-    system_msg = "You are a helpful assistant. Answer using only the provided context."
-    user_msg = f"Context:\n{context_blocks}\n\nQuestion: {request.question}"
+    for _ in range(max_iterations):
+        results = retriever.retrieve(
+            query,
+            request.filters,
+            top_k=request.top_k,
+        )
+        results = reranker.rerank(query, results)
+        if compressor is not None:
+            results = compressor.compress(query, results)
+        threshold = (
+            request.score_threshold
+            if request.score_threshold is not None
+            else config.retrieval.score_threshold
+        )
+        if threshold is not None:
+            results = [r for r in results if r.score >= threshold]
 
-    answer = llm.chat(
-        [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": user_msg},
-        ]
-    )
+        all_results = _merge_results(all_results, results)
 
-    sources = _extract_sources(results)
+        context_blocks = _format_context(all_results)
+        system_msg = (
+            "You are a helpful assistant. Answer using only the provided context."
+        )
+        user_msg = f"Context:\n{context_blocks}\n\nQuestion: {request.question}"
+        answer = llm.chat(
+            [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_msg},
+            ]
+        )
+
+        if grounding_checker is not None:
+            check = grounding_checker.check(
+                question=request.question,
+                answer=answer,
+                results=all_results,
+            )
+            if check.is_grounded or check.refined_query is None:
+                break
+            query = check.refined_query
+
+    sources = _extract_sources(all_results)
     return AskResponse(answer=answer, sources=sources)

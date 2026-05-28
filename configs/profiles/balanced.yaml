@@ -82,6 +82,15 @@ query_processing:
   planner:            # adaptive LLM planner: selects which processors to run per query
     enabled: false    # set to true to let the LLM select the optimal processor subset per query
 
+# ── Iterative / Agentic Retrieval (opt-in) ──────────────────
+# Enables a grounding-check loop after each generate step.
+# The LLM evaluates whether the answer is supported by retrieved context.
+# If not grounded and a refined query is suggested, retrieval is retried.
+# Results are accumulated and deduplicated across all iterations.
+iterative_retrieval:
+  enabled: false             # set to true to activate the loop
+  max_iterations: 3          # 1–5; loop exits early if answer is grounded
+
 # ── Observability ────────────────────────────────────────────
 
 observability:

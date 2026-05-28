@@ -7,6 +7,7 @@ from mindlm.core.config.loader import load_config
 from mindlm.core.config.models import RAGConfig
 from mindlm.core.context.compressor import ContextualCompressor
 from mindlm.core.embeddings.huggingface import HuggingFaceEmbeddingProvider
+from mindlm.core.generation.grounding import GroundingChecker
 from mindlm.core.generation.ollama import OllamaProvider
 from mindlm.core.ingestion.contextualizer import Contextualizer
 from mindlm.core.ingestion.pipeline import IngestionPipeline
@@ -108,3 +109,15 @@ def get_compressor() -> ContextualCompressor | None:
     if not config.compression.enabled:
         return None
     return ContextualCompressor(get_llm_provider())
+
+
+def get_grounding_checker() -> GroundingChecker | None:
+    """Build GroundingChecker if iterative retrieval is enabled.
+
+    Returns:
+        GroundingChecker instance, or None if feature disabled.
+    """
+    config = get_config()
+    if not config.iterative_retrieval.enabled:
+        return None
+    return GroundingChecker(get_llm_provider())

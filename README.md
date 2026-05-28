@@ -299,6 +299,27 @@ query_processing:
 
 ---
 
+### `iterative_retrieval`
+
+Optional grounding-check loop for the `/ask` endpoint. After each generate step, the LLM evaluates whether the answer is supported by the retrieved context. If not grounded and a refined query is suggested, retrieval is retried up to `max_iterations` times. Results are accumulated and deduplicated by chunk ID across all iterations.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable the iterative retrieval loop. When `false`, `/ask` runs a single retrieve–generate pass as before |
+| `max_iterations` | int (1–5) | `3` | Maximum number of retrieve–generate iterations. The loop exits early once the answer is grounded |
+
+Example:
+
+```yaml
+iterative_retrieval:
+  enabled: true
+  max_iterations: 3
+```
+
+> The grounding check is an LLM call added to each iteration. On LLM errors the check falls back to `is_grounded=True`, so the loop exits rather than retrying indefinitely.
+
+---
+
 ### `observability`
 
 Optional Langfuse tracing for the RAG pipeline. When enabled, `search` and `ask` requests are traced end-to-end: retrieval, query processing, embedding, reranking, and generation each appear as a named span.
