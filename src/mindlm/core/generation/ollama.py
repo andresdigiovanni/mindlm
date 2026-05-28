@@ -55,25 +55,25 @@ class OllamaProvider(LLMProvider):
             logger.info("Ollama model '%s' already available.", model)
 
     @observe(as_type="generation", name="ollama-chat")
-    def chat(self, messages: list[dict[str, str]]) -> str:
+    def chat(self, messages: list[dict[str, str]], *, json_mode: bool = False) -> str:
         if not self.healthcheck():
             raise LLMUnavailableError(
                 f"Ollama not available at {self._config.base_url}. "
                 "Verify that the service is running."
             )
+        payload: dict[str, object] = {
+            "model": self._config.model,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": self._config.temperature,
+                "num_predict": self._config.max_tokens,
+            },
+        }
+        if json_mode:
+            payload["format"] = "json"
         try:
-            response = self._client.post(
-                "/api/chat",
-                json={
-                    "model": self._config.model,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "temperature": self._config.temperature,
-                        "num_predict": self._config.max_tokens,
-                    },
-                },
-            )
+            response = self._client.post("/api/chat", json=payload)
             data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise LLMUnavailableError(

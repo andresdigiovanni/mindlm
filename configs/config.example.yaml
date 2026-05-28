@@ -63,7 +63,7 @@ chunking:
 retrieval:
   strategy: vector           # vector = dense similarity; hybrid = dense + sparse (BM25)
   top_k: 5                   # number of chunks returned before reranking
-  # score_threshold: 0.6    # optional: drop results below this similarity score (0.0–1.0)
+  score_threshold: 0.1  # optional: drop results below this similarity score (use low values with cross_encoder reranking)
 
 reranking:
   enabled: false             # set to true to re-score retrieved chunks

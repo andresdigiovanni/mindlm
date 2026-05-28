@@ -48,7 +48,7 @@ chunking:
 retrieval:
   strategy: hybrid
   top_k: 10
-  # score_threshold: 0.6  # optional: drop results below this similarity score
+  score_threshold: 0.1  # optional: drop results below this similarity score (use low values with cross_encoder reranking)
 
 reranking:
   enabled: true

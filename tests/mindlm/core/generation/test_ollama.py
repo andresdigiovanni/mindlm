@@ -62,6 +62,39 @@ class TestOllamaProvider:
 
             assert result == "answer"
 
+    def test_chat_json_mode_sends_format_field(self) -> None:
+        with (
+            patch("httpx.Client.get") as mock_get,
+            patch("httpx.Client.post") as mock_post,
+        ):
+            mock_get.return_value = MagicMock(status_code=200)
+            mock_post.return_value = MagicMock(
+                json=lambda: {"message": {"content": '{"grounded": true}'}}
+            )
+            provider = OllamaProvider(_config())
+
+            result = provider.chat([{"role": "user", "content": "hi"}], json_mode=True)
+
+            assert result == '{"grounded": true}'
+            call_payload = mock_post.call_args.kwargs["json"]
+            assert call_payload["format"] == "json"
+
+    def test_chat_no_json_mode_omits_format_field(self) -> None:
+        with (
+            patch("httpx.Client.get") as mock_get,
+            patch("httpx.Client.post") as mock_post,
+        ):
+            mock_get.return_value = MagicMock(status_code=200)
+            mock_post.return_value = MagicMock(
+                json=lambda: {"message": {"content": "answer"}}
+            )
+            provider = OllamaProvider(_config())
+
+            provider.chat([{"role": "user", "content": "hi"}])
+
+            call_payload = mock_post.call_args.kwargs["json"]
+            assert "format" not in call_payload
+
     def test_chat_raises_when_unhealthy(self) -> None:
         with patch("httpx.Client.get", side_effect=httpx.ConnectError("refused")):
             provider = OllamaProvider(_config())

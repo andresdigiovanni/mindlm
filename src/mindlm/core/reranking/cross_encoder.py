@@ -24,7 +24,10 @@ class CrossEncoderReranker(BaseReranker):
     def rerank(self, query: str, results: list[Result]) -> list[Result]:
         if not results:
             return results
-        pairs = [(query, r.payload.get("content", "")) for r in results]
+        pairs = [
+            (query, r.payload.get("matched_chunk") or r.payload.get("content", ""))
+            for r in results
+        ]
         scores: list[float] = self._model.predict(pairs).tolist()  # (0, 1) via Sigmoid
         scored = sorted(
             zip(results, scores, strict=False), key=lambda x: x[1], reverse=True

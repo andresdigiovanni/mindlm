@@ -79,7 +79,9 @@ class GroundingChecker:
         prompt = _build_grounding_prompt(question, answer, context)
 
         try:
-            raw = self._llm.chat([{"role": "user", "content": prompt}]).strip()
+            raw = self._llm.chat(
+                [{"role": "user", "content": prompt}], json_mode=True
+            ).strip()
         except (RuntimeError, OSError):
             _logger.warning("GroundingChecker: LLM call failed; assuming grounded")
             return _fallback
