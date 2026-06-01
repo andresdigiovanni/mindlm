@@ -74,6 +74,20 @@ read_int_gt() {
   done
 }
 
+# Read an integer constrained to a closed interval.
+read_int_range() {
+  local prompt="$1" default="$2" min_val="$3" max_val="$4" varname="$5"
+  local value
+  while true; do
+    read_value "${prompt}" "${default}" value
+    if [[ "${value}" =~ ^[0-9]+$ ]] && (( value >= min_val && value <= max_val )); then
+      printf -v "${varname}" '%s' "${value}"
+      return
+    fi
+    warn "Value must be an integer between ${min_val} and ${max_val}. Got: ${value}"
+  done
+}
+
 # Validate output path: reject traversal and sensitive system paths.
 validate_output_path() {
   local path="$1"
@@ -97,9 +111,6 @@ validate_output_path() {
   fi
   return 0
 }
-
-# ── Script directory ────────────────────────────────────────────────────────
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Parse CLI args ──────────────────────────────────────────────────────────
 CLI_OUTPUT=""
@@ -152,87 +163,20 @@ elif [[ -d "${OUTPUT_PATH}" ]]; then
   exit 1
 fi
 
-# ── Profile selection ────────────────────────────────────────────────────────
-echo ""
-echo -e "${BOLD}Select a configuration profile:${NC}"
-echo ""
-echo "  1) minimal   — quick start; fixed chunking, no query processing, low resource"
-echo "  2) balanced  — recommended; recursive chunking, rewriting, cross-encoder reranking"
-echo "  3) full      — maximum quality; semantic chunking, hybrid retrieval, all processors"
-echo "  4) custom    — configure each option interactively"
-echo ""
-read_value "Profile" "2" PROFILE_CHOICE
-
-case "${PROFILE_CHOICE}" in
-  1) PROFILE_NAME="minimal"  ;;
-  2) PROFILE_NAME="balanced" ;;
-  3) PROFILE_NAME="full"     ;;
-  4) PROFILE_NAME="custom"   ;;
-  minimal|balanced|full|custom) PROFILE_NAME="${PROFILE_CHOICE}" ;;
-  *) warn "Unknown choice '${PROFILE_CHOICE}'. Using 'balanced'."; PROFILE_NAME="balanced" ;;
-esac
-
-# ── Use a preset profile ─────────────────────────────────────────────────────
-if [[ "${PROFILE_NAME}" != "custom" ]]; then
-  PROFILE_FILE="${SCRIPT_DIR}/configs/profiles/${PROFILE_NAME}.yaml"
-  if [[ ! -f "${PROFILE_FILE}" ]]; then
-    error "Profile file not found: ${PROFILE_FILE}"
-    exit 1
-  fi
-
-  echo ""
-  info "Using profile: ${PROFILE_NAME}"
-  echo ""
-
-  # Allow patching common fields
-  read_value "App name" "local-rag" APP_NAME
-  read_value "Qdrant collection name" "documents" COLLECTION_NAME
-  read_value "LLM model" "gemma4" LLM_MODEL
-  read_value "Ollama base URL" "http://ollama:11434" LLM_BASE_URL
-
-  # Copy profile and patch fields safely using Python (avoids sed special-char injection)
-  mkdir -p "$(dirname "${OUTPUT_PATH}")"
-  cp "${PROFILE_FILE}" "${OUTPUT_PATH}"
-  python3 - "${OUTPUT_PATH}" "${APP_NAME}" "${COLLECTION_NAME}" "${LLM_MODEL}" "${LLM_BASE_URL}" <<'PYEOF'
-import sys, re
-path, app_name, collection, llm_model, base_url = sys.argv[1:]
-with open(path, encoding='utf-8') as f:
-    text = f.read()
-text = re.sub(r'^(  name:).*', lambda m: m.group(1) + ' ' + app_name, text, flags=re.MULTILINE)
-text = re.sub(r'^(  collection:).*', lambda m: m.group(1) + ' ' + collection, text, flags=re.MULTILINE)
-text = re.sub(r'^(  model:).*', lambda m: m.group(1) + ' ' + llm_model, text, count=1, flags=re.MULTILINE)
-text = re.sub(r'^(  base_url:).*', lambda m: m.group(1) + ' ' + base_url, text, flags=re.MULTILINE)
-with open(path, 'w', encoding='utf-8') as f:
-    f.write(text)
-PYEOF
-
-  success "Config written to: ${OUTPUT_PATH}"
-  echo ""
-  echo -e "${BOLD}Next steps:${NC}"
-  echo "  1. Review ${OUTPUT_PATH} and adjust any remaining settings."
-  echo "  2. Run: bash mindlm.sh start"
-  echo ""
-  exit 0
-fi
-
 # ── Custom configuration ─────────────────────────────────────────────────────
-echo ""
-echo -e "${BOLD}${CYAN}─── App ────────────────────────────────────────${NC}"
-read_value "App name" "local-rag" APP_NAME
-
 echo ""
 echo -e "${BOLD}${CYAN}─── LLM ────────────────────────────────────────${NC}"
 read_value "Provider" "ollama" LLM_PROVIDER
 read_value "Model" "gemma4" LLM_MODEL
 read_value "Base URL" "http://ollama:11434" LLM_BASE_URL
 read_value "Temperature (0.0–1.0)" "0.7" LLM_TEMPERATURE
-read_value "Max tokens" "1024" LLM_MAX_TOKENS
+read_value "Max tokens" "2048" LLM_MAX_TOKENS
 
 echo ""
 echo -e "${BOLD}${CYAN}─── Embeddings ─────────────────────────────────${NC}"
 read_value "Provider" "huggingface" EMB_PROVIDER
-read_value "Model (HuggingFace model id)" "BAAI/bge-small-en-v1.5" EMB_MODEL
-read_value "Dimensions (must match model output)" "384" EMB_DIMENSIONS
+read_value "Model (HuggingFace model id)" "BAAI/bge-large-en-v1.5" EMB_MODEL
+read_value "Dimensions (must match model output)" "1024" EMB_DIMENSIONS
 
 echo ""
 echo -e "${BOLD}${CYAN}─── Vector Store ───────────────────────────────${NC}"
@@ -242,41 +186,51 @@ read_value "Host" "qdrant" VS_HOST
 read_value "Port" "6333" VS_PORT
 read_value "Collection name" "documents" VS_COLLECTION
 VS_API_KEY="null"
+VS_API_KEY_LINE="  api_key: null"
 if [[ "${VS_MODE}" == "cloud" ]]; then
   echo ""
   warn "Cloud mode selected. API key input is hidden."
   printf '%bQdrant API key%b: ' "${BOLD}" "${NC}"
   read -rs VS_API_KEY_INPUT
   echo ""
-  VS_API_KEY="${VS_API_KEY_INPUT:-null}"
+  VS_API_KEY="${VS_API_KEY_INPUT}"
+  if [[ -n "${VS_API_KEY}" ]]; then
+    VS_API_KEY_LINE="  api_key: \"${VS_API_KEY}\""
+  fi
 fi
 
 echo ""
 echo -e "${BOLD}${CYAN}─── Ingestion ──────────────────────────────────${NC}"
 echo "  Valid values: pdf, html, markdown, png, jpeg, pptx, docx"
-read_value "Source types (comma-separated)" "pdf,docx,markdown" INGESTION_SOURCE_TYPES_RAW
+read_value "Source types (comma-separated)" "pdf,docx,pptx,html,markdown,png,jpeg" INGESTION_SOURCE_TYPES_RAW
 # Convert comma-separated to YAML inline list
 INGESTION_SOURCE_TYPES="[$(echo "${INGESTION_SOURCE_TYPES_RAW}" | sed 's/,/, /g')]"
 echo "  Accepted values for parsing_strategy: raw | structured | ocr"
-read_value "Parsing strategy" "raw" INGESTION_PARSING_STRATEGY
+read_value "Parsing strategy" "structured" INGESTION_PARSING_STRATEGY
 read_bool "Enable deduplication" "true" INGESTION_DEDUP
 read_value "Allowed base directory (security boundary)" "/data" INGESTION_BASE_DIR
 
 echo ""
 echo -e "${BOLD}${CYAN}─── Chunking ───────────────────────────────────${NC}"
-echo "  Strategies: fixed | recursive | sliding | semantic"
-read_value "Strategy" "recursive" CHUNKING_STRATEGY
-read_value "Chunk size (characters)" "512" CHUNKING_SIZE
-read_value "Overlap (characters)" "64" CHUNKING_OVERLAP
+echo "  Strategies: fixed | recursive | sliding | semantic | sentence_window"
+read_value "Strategy" "semantic" CHUNKING_STRATEGY
+read_value "Chunk size (characters)" "500" CHUNKING_SIZE
+read_value "Overlap (characters)" "50" CHUNKING_OVERLAP
 
 CHUNKING_SEMANTIC_MODEL_LINE=""
 if [[ "${CHUNKING_STRATEGY}" == "semantic" ]]; then
-  read_required "Semantic model (HuggingFace model id)" CHUNKING_SEMANTIC_MODEL
+  read_value "Semantic model (HuggingFace model id)" "${EMB_MODEL}" CHUNKING_SEMANTIC_MODEL
   CHUNKING_SEMANTIC_MODEL_LINE="  semantic_model: ${CHUNKING_SEMANTIC_MODEL}"
 fi
 
 CHUNKING_PARENT_LINE=""
-read_bool "Enable parent-document retrieval (parent_chunk_size)?" "false" USE_PARENT_CHUNK
+read_bool "Enable parent-document retrieval (parent_chunk_size)?" "true" USE_PARENT_CHUNK
+if [[ "${USE_PARENT_CHUNK}" == "true" ]]; then
+  if [[ "${CHUNKING_STRATEGY}" == "sentence_window" ]]; then
+    warn "parent_chunk_size cannot be used with strategy=sentence_window. Skipping."
+    USE_PARENT_CHUNK="false"
+  fi
+fi
 if [[ "${USE_PARENT_CHUNK}" == "true" ]]; then
   read_int_gt "Parent chunk size (must be > chunk_size ${CHUNKING_SIZE})" "1500" \
     "${CHUNKING_SIZE}" "chunk_size" CHUNKING_PARENT_SIZE
@@ -289,49 +243,111 @@ if [[ "${CHUNKING_STRATEGY}" == "recursive" ]]; then
   CHUNKING_SEPARATORS_LINE="  separators: ${CHUNKING_SEPS_RAW}"
 fi
 
+CHUNKING_WINDOW_SIZE_LINE=""
+if [[ "${CHUNKING_STRATEGY}" == "sentence_window" ]]; then
+  read_int_range "Window size (number of surrounding sentences)" "2" "1" "100" CHUNKING_WINDOW_SIZE
+  CHUNKING_WINDOW_SIZE_LINE="  window_size: ${CHUNKING_WINDOW_SIZE}"
+fi
+
 echo ""
 echo -e "${BOLD}${CYAN}─── Retrieval ──────────────────────────────────${NC}"
 echo "  Strategies: vector | hybrid"
-read_value "Strategy" "vector" RETRIEVAL_STRATEGY
-read_value "Top-k (chunks before reranking)" "5" RETRIEVAL_TOP_K
+read_value "Strategy" "hybrid" RETRIEVAL_STRATEGY
+read_value "Top-k (chunks before reranking)" "40" RETRIEVAL_TOP_K
+read_value "Per-query top-k (blank uses top_k)" "20" RETRIEVAL_PER_QUERY_TOP_K
+RETRIEVAL_PER_QUERY_TOP_K_LINE="  per_query_top_k: null"
+if [[ -n "${RETRIEVAL_PER_QUERY_TOP_K}" ]]; then
+  RETRIEVAL_PER_QUERY_TOP_K_LINE="  per_query_top_k: ${RETRIEVAL_PER_QUERY_TOP_K}"
+fi
 
 echo ""
 echo -e "${BOLD}${CYAN}─── Reranking ──────────────────────────────────${NC}"
-read_bool "Enable reranking?" "false" RERANKING_ENABLED
-RERANKING_METHOD_LINE="  # method: cross_encoder"
-RERANKING_MODEL_LINE="  # model: cross-encoder/ms-marco-MiniLM-L-6-v2"
+read_bool "Enable reranking?" "true" RERANKING_ENABLED
+RERANKING_METHOD_LINE="  method: null"
+RERANKING_MODEL_LINE="  model: null"
+RERANKING_TOP_K_LINE="  top_k: null"
+RERANKING_THRESHOLD_LINE="  score_threshold: null"
 if [[ "${RERANKING_ENABLED}" == "true" ]]; then
-  echo "  Methods: cross_encoder | mmr"
+  echo "  Methods: cross_encoder | mmr | llm"
   read_value "Method" "cross_encoder" RERANKING_METHOD
   RERANKING_METHOD_LINE="  method: ${RERANKING_METHOD}"
   if [[ "${RERANKING_METHOD}" == "cross_encoder" ]]; then
-    read_value "Reranking model (HuggingFace model id)" "cross-encoder/ms-marco-MiniLM-L-6-v2" RERANKING_MODEL
+    read_value "Reranking model (HuggingFace model id)" "BAAI/bge-reranker-v2-m3" RERANKING_MODEL
     RERANKING_MODEL_LINE="  model: ${RERANKING_MODEL}"
+  fi
+  read_value "Reranking top-k (blank keeps all)" "10" RERANKING_TOP_K
+  if [[ -n "${RERANKING_TOP_K}" ]]; then
+    RERANKING_TOP_K_LINE="  top_k: ${RERANKING_TOP_K}"
+  fi
+  read_value "Score threshold 0.0-1.0 (blank disables)" "0.1" RERANKING_THRESHOLD
+  if [[ -n "${RERANKING_THRESHOLD}" ]]; then
+    RERANKING_THRESHOLD_LINE="  score_threshold: ${RERANKING_THRESHOLD}"
   fi
 fi
 
 echo ""
+echo -e "${BOLD}${CYAN}─── Contextual Retrieval ───────────────────────${NC}"
+read_bool "Enable chunk context enrichment?" "false" CR_CHUNK_CONTEXT
+read_bool "Enable document summary enrichment?" "true" CR_DOC_SUMMARY
+
+CR_PROMPT_TEMPLATE_LINE=""
+CR_DOC_PROMPT_TEMPLATE_LINE=""
+read_bool "Customize chunk-context prompt template?" "false" CR_USE_CUSTOM_TEMPLATE
+if [[ "${CR_USE_CUSTOM_TEMPLATE}" == "true" ]]; then
+  read_required "Chunk-context prompt template (single line; use {document} and {chunk})" CR_PROMPT_TEMPLATE
+  CR_PROMPT_TEMPLATE_LINE="  prompt_template: \"${CR_PROMPT_TEMPLATE}\""
+fi
+read_bool "Customize document-summary prompt template?" "false" CR_USE_CUSTOM_DOC_TEMPLATE
+if [[ "${CR_USE_CUSTOM_DOC_TEMPLATE}" == "true" ]]; then
+  read_required "Document-summary prompt template (single line; use {document})" CR_DOC_PROMPT_TEMPLATE
+  CR_DOC_PROMPT_TEMPLATE_LINE="  document_summary_prompt_template: \"${CR_DOC_PROMPT_TEMPLATE}\""
+fi
+
+echo ""
+echo -e "${BOLD}${CYAN}─── Compression ────────────────────────────────${NC}"
+read_bool "Enable contextual compression?" "false" COMPRESSION_ENABLED
+
+echo ""
 echo -e "${BOLD}${CYAN}─── Query Processing ───────────────────────────${NC}"
 echo "  Each processor is independent. Enable any combination."
-read_bool "Enable query rewriting?" "false" QP_REWRITING
-read_bool "Enable query expansion?" "false" QP_EXPANSION
-read_bool "Enable HyDE (hypothetical document)?" "false" QP_HYDE
+read_bool "Enable query rewriting?" "true" QP_REWRITING
+read_bool "Enable query expansion?" "true" QP_EXPANSION
+read_bool "Enable HyDE (hypothetical document)?" "true" QP_HYDE
 
-read_bool "Enable multi-query?" "false" QP_MULTI_QUERY
+read_bool "Enable multi-query?" "true" QP_MULTI_QUERY
 QP_MULTI_QUERY_VARIANTS_LINE="    num_variants: 3"
 if [[ "${QP_MULTI_QUERY}" == "true" ]]; then
   read_value "Number of query variants (2–10)" "3" QP_MULTI_QUERY_VARIANTS
   QP_MULTI_QUERY_VARIANTS_LINE="    num_variants: ${QP_MULTI_QUERY_VARIANTS}"
 fi
 
-read_bool "Enable query decomposition?" "false" QP_DECOMP
+read_bool "Enable query decomposition?" "true" QP_DECOMP
 QP_DECOMP_SUBQUERIES_LINE="    max_subqueries: 4"
 if [[ "${QP_DECOMP}" == "true" ]]; then
-  read_value "Max sub-queries (2–10)" "4" QP_DECOMP_SUBQUERIES
+  read_int_range "Max sub-queries (2-10)" "4" "2" "10" QP_DECOMP_SUBQUERIES
   QP_DECOMP_SUBQUERIES_LINE="    max_subqueries: ${QP_DECOMP_SUBQUERIES}"
 fi
 
-read_bool "Enable step-back prompting?" "false" QP_STEP_BACK
+read_bool "Enable step-back prompting?" "true" QP_STEP_BACK
+read_bool "Enable adaptive query planner?" "true" QP_PLANNER_ENABLED
+
+echo ""
+echo -e "${BOLD}${CYAN}─── Iterative Retrieval ────────────────────────${NC}"
+read_bool "Enable iterative retrieval loop for /ask?" "true" ITERATIVE_ENABLED
+ITERATIVE_MAX_ITERS_LINE="  max_iterations: 3"
+if [[ "${ITERATIVE_ENABLED}" == "true" ]]; then
+  read_int_range "Max iterations (1-5)" "3" "1" "5" ITERATIVE_MAX_ITERS
+  ITERATIVE_MAX_ITERS_LINE="  max_iterations: ${ITERATIVE_MAX_ITERS}"
+fi
+
+echo ""
+echo -e "${BOLD}${CYAN}─── Observability (Langfuse) ───────────────────${NC}"
+read_bool "Enable observability?" "true" OBS_ENABLED
+read_value "Public key" "pk-lf-local-dev" OBS_PUBLIC_KEY
+read_value "Secret key" "sk-lf-local-dev" OBS_SECRET_KEY
+read_value "Host" "http://langfuse:3000" OBS_HOST
+read_value "Flush at" "15" OBS_FLUSH_AT
+read_value "Flush interval (seconds)" "0.5" OBS_FLUSH_INTERVAL
 
 # ── Write config ─────────────────────────────────────────────────────────────
 mkdir -p "$(dirname "${OUTPUT_PATH}")"
@@ -340,9 +356,6 @@ cat > "${OUTPUT_PATH}" <<YAML
 # Generated by config-wizard.sh on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Edit this file to adjust your configuration.
 # Re-run config-wizard.sh to regenerate from scratch.
-
-app:
-  name: ${APP_NAME}
 
 # ── Infrastructure ──────────────────────────────────────────
 
@@ -364,7 +377,7 @@ vector_store:
   host: ${VS_HOST}
   port: ${VS_PORT}
   collection: ${VS_COLLECTION}
-  api_key: ${VS_API_KEY}
+${VS_API_KEY_LINE}
 
 # ── Ingestion Pipeline ──────────────────────────────────────
 
@@ -380,6 +393,7 @@ chunking:
   overlap: ${CHUNKING_OVERLAP}
 ${CHUNKING_SEMANTIC_MODEL_LINE:+${CHUNKING_SEMANTIC_MODEL_LINE}
 }${CHUNKING_PARENT_LINE:+${CHUNKING_PARENT_LINE}
+}${CHUNKING_WINDOW_SIZE_LINE:+${CHUNKING_WINDOW_SIZE_LINE}
 }${CHUNKING_SEPARATORS_LINE}
 
 # ── Retrieval Pipeline ──────────────────────────────────────
@@ -387,11 +401,24 @@ ${CHUNKING_SEMANTIC_MODEL_LINE:+${CHUNKING_SEMANTIC_MODEL_LINE}
 retrieval:
   strategy: ${RETRIEVAL_STRATEGY}
   top_k: ${RETRIEVAL_TOP_K}
+${RETRIEVAL_PER_QUERY_TOP_K_LINE}
 
 reranking:
   enabled: ${RERANKING_ENABLED}
 ${RERANKING_METHOD_LINE}
 ${RERANKING_MODEL_LINE}
+${RERANKING_TOP_K_LINE}
+${RERANKING_THRESHOLD_LINE}
+
+contextual_retrieval:
+  chunk_context_enabled: ${CR_CHUNK_CONTEXT}
+  document_summary_enabled: ${CR_DOC_SUMMARY}
+${CR_PROMPT_TEMPLATE_LINE:+${CR_PROMPT_TEMPLATE_LINE}
+}${CR_DOC_PROMPT_TEMPLATE_LINE:+${CR_DOC_PROMPT_TEMPLATE_LINE}
+}
+
+compression:
+  enabled: ${COMPRESSION_ENABLED}
 
 # ── Query Processing Pipeline ───────────────────────────────
 
@@ -410,6 +437,20 @@ ${QP_MULTI_QUERY_VARIANTS_LINE}
 ${QP_DECOMP_SUBQUERIES_LINE}
   step_back:
     enabled: ${QP_STEP_BACK}
+  planner:
+    enabled: ${QP_PLANNER_ENABLED}
+
+iterative_retrieval:
+  enabled: ${ITERATIVE_ENABLED}
+${ITERATIVE_MAX_ITERS_LINE}
+
+observability:
+  enabled: ${OBS_ENABLED}
+  public_key: ${OBS_PUBLIC_KEY}
+  secret_key: ${OBS_SECRET_KEY}
+  host: ${OBS_HOST}
+  flush_at: ${OBS_FLUSH_AT}
+  flush_interval: ${OBS_FLUSH_INTERVAL}
 YAML
 
 success "Config written to: ${OUTPUT_PATH}"

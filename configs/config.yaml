@@ -91,7 +91,7 @@ query_processing:
 # If not grounded and a refined query is suggested, retrieval is retried.
 # Results are accumulated and deduplicated across all iterations.
 iterative_retrieval:
-  enabled: true             # set to true to activate the loop
+  enabled: false             # set to true to activate the loop
   max_iterations: 3          # 1–5; loop exits early if answer is grounded
 
 # ── Observability ────────────────────────────────────────────

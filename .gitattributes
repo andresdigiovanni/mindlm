@@ -1,5 +1,6 @@
 # Ensure shell scripts always use LF line endings
 mindlm.sh text eol=lf
+config-wizard.sh text eol=lf
 
 # Default behavior
 * text=auto
