@@ -1,667 +1,139 @@
 ![mindlm](assets/images/logo.png)
 
-A local, configurable RAG (Retrieval-Augmented Generation) platform built for private, Docker-first deployments. Ingest documents, search them semantically, and ask questions — all using local models (Ollama + HuggingFace) and Qdrant as the vector store. Exposed as both a REST API and an MCP server.
+MindLM is a local-first RAG framework designed to build high-quality document intelligence systems using modular retrieval, reranking, and query enhancement pipelines.
+
+It is built around a fully configurable architecture using Ollama, Qdrant, and HuggingFace embeddings.
 
 ---
 
-## Features
+## ✨ Core Features
 
-- **YAML-driven configuration** — pipelines, models, chunking, retrieval, and reranking all declared in a single config file
-- **Local models** — Ollama for generation, HuggingFace sentence-transformers for embeddings (downloaded at runtime)
-- **Qdrant vector store** — multi-tenant via named collections; supports vector and hybrid BM25 (RRF) retrieval
-- **Document ingestion** — PDF, HTML, Markdown, DOCX, PPTX, PNG, JPEG; raw, structured, and OCR (Surya) parsing strategies
-- **Incremental sync** — detects changes via Qdrant payload hashes; full reingestion also supported
-- **Contextual Retrieval** — at ingest time, the LLM generates a one-sentence context per chunk (stored as `chunk_context` metadata) and a one-sentence document summary (stored as `document_summary` metadata, one LLM call per document); raw chunk text is embedded unchanged; both fields appear in search result `metadata`
-- **Reranking** — cross-encoder, MMR, LLM-as-reranker, or contextual compression; configurable and optional
-- **Query processing** — 6 configurable pre-retrieval techniques (rewriting, expansion, HyDE, multi-query, decomposition, step-back) that improve recall; combinable
-- **REST API** — FastAPI with 6 endpoints (health, collections, ingest/sync, ingest/full, search, ask)
-- **MCP server** — 5 tools over stdio transport for LLM agent integration
-- **Docker Compose** — all services (api, mcp, ollama, qdrant) run with a single command
-- **Path traversal protection** — `ingestion.allowed_base_dir` restricts which directories can be ingested
-- **Citation grounding** — every chunk carries exact character offsets (`char_start`, `char_end`) and a 1-indexed `page_number` (PDF); `/ask` surfaces these as `SourceRef` fields in `sources[]`; `/search` exposes them in `SearchResultItem.metadata`
-- **Observability (opt-in)** — Langfuse tracing for the full RAG pipeline; all stages (`search`/`ask` → retrieve → query processing, embedding, reranking, generation) are instrumented; disabled by default
+### 🧠 Local-first AI stack
+- Ollama-based LLM inference
+- Fully local deployment (no external APIs required)
+- Qdrant vector database
+
+### 📄 Document processing
+- Recursive chunking
+- Semantic chunking
+- Sentence window retrieval
+- Parent-child chunking
+
+### 🔎 Retrieval system
+- Dense vector search
+- Hybrid retrieval (dense + sparse)
+- Metadata filtering
+- Configurable top-k strategies
+
+### ⚙️ Pipeline control
+- Fully YAML-configurable pipeline
+- Modular architecture per stage
+- Extensible components
+
+### 🚀 Deployment
+- Docker support
+- MCP Server integration
+- Production-ready local deployment
 
 ---
 
-## Quick Start
+## 🧪 Advanced Features
 
-### Prerequisites
+### 🔍 Query enhancement
+- Query expansion
+- Query rewriting
+- Multi-query retrieval
+- HyDE (Hypothetical Document Embeddings)
+- Step-back prompting
+- Query decomposition
 
-- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
-- A copy of the config file (see [Configuration](#configuration))
+### 📊 Advanced retrieval
+- Contextual retrieval
+- Parent-child retrieval
+- Reciprocal Rank Fusion (RRF)
 
-### Deploy
+### 🎯 Reranking
+- Cross-encoder reranking
+- LLM-based reranking
+
+### 🧩 Context optimization
+- Context compression
+- Contextual summarization
+
+---
+
+## ⚡ Quick Start (5 minutes)
+
+### 1. Start all services
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/username/mindlm.git
-cd mindlm
-
-# 2. Configure the platform
-# Edit configs/config.yaml to set your models, paths, and preferences
-
-# 3. Add your documents
-# Copy documents into a local directory mounted as /data inside the containers.
-# To use a different path, update the volume in docker-compose.yml and
-# set ingestion.allowed_base_dir in config.yaml accordingly.
-
-# 4. Start all services
-docker compose up
+bash mindlm.sh start
 ```
 
-Services started:
-- **api** — REST API at `http://localhost:8000`
-- **mcp** — MCP server (stdio)
-- **qdrant** — vector store at `http://localhost:6333` · dashboard at `http://localhost:6333/dashboard`
-- **ollama** — LLM runtime at `http://localhost:11434`
-- **langfuse** — observability UI at `http://localhost:3000` (default credentials: `admin@example.com` / `changeme` — change before production)
-
----
-
-## Configuration
-
-Edit `configs/config.yaml` to adjust. The file is mounted as a volume into all containers — no rebuild is required after changes.
-
-### Quick Start
-
-**Interactive wizard** (recommended):
-```bash
-./config-wizard.sh
-# or via mindlm.sh:
-bash mindlm.sh config-wizard
-```
-
----
-
-### Infrastructure
-
-### `llm`
-
-Controls the language model used for answer generation.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `provider` | `"ollama"` | `"ollama"` | LLM provider. Only `ollama` is supported |
-| `model` | string | `"gemma4"` | Ollama model name (must be pulled with `ollama pull <model>`) |
-| `base_url` | string | `"http://ollama:11434"` | Ollama service URL. Use `http://localhost:11434` for local dev |
-| `temperature` | float | `0.7` | Sampling temperature. `0.0` = deterministic, `1.0` = most random |
-| `max_tokens` | int (> 0) | `1024` | Maximum tokens to generate per response |
-
----
-
-### `embeddings`
-
-Controls the embedding model used to vectorize documents and queries.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `provider` | `"huggingface"` | `"huggingface"` | Embeddings provider. Only `huggingface` is supported |
-| `model` | string | `"sentence-transformers/all-MiniLM-L6-v2"` | HuggingFace model name. Downloaded at first run into the `hf_cache` volume |
-| `dimensions` | int (> 0) | `384` | Output vector dimensions. **Must match the model's actual output size** |
-
-Common model / dimension pairs:
-
-| Model | Dimensions |
-|-------|-----------|
-| `sentence-transformers/all-MiniLM-L6-v2` | 384 |
-| `sentence-transformers/all-mpnet-base-v2` | 768 |
-| `BAAI/bge-large-en-v1.5` | 1024 |
-
----
-
-### `vector_store`
-
-Controls the Qdrant vector database connection.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `provider` | `"qdrant"` | `"qdrant"` | Vector store provider. Only `qdrant` is supported |
-| `mode` | `"local"` \| `"cloud"` | `"local"` | `local` connects to a self-hosted instance; `cloud` uses Qdrant Cloud |
-| `host` | string | `"qdrant"` | Qdrant hostname. Use `localhost` for local dev outside Docker |
-| `port` | int | `6333` | Qdrant HTTP port |
-| `collection` | string | `"documents"` | Default collection name (created automatically on first ingest) |
-| `api_key` | string \| null | `null` | API key for Qdrant Cloud. Leave unset for local mode |
-
----
-
-### Ingestion Pipeline
-
-### `ingestion`
-
-Controls which files are accepted and how they are parsed.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `source_type` | list | all types | File types to accept. Subset of: `pdf`, `html`, `markdown`, `png`, `jpeg`, `pptx`, `docx` |
-| `parsing_strategy` | `"raw"` \| `"structured"` \| `"ocr"` | `"structured"` | See below |
-| `deduplication` | bool | `true` | Skip unchanged files on incremental sync (hash-based) |
-| `allowed_base_dir` | string | `"/data"` | **Security boundary**: only paths under this directory are accepted. Set to the narrowest directory covering your document sources |
-
-**Parsing strategies:**
-
-| Strategy | Description |
-|----------|-------------|
-| `raw` | Extract plain text with no layout analysis |
-| `structured` | Preserve headings, lists, and tables (recommended for most documents) |
-| `ocr` | Run OCR via Surya for scanned images and PDFs with embedded images. Requires the `surya-ocr` optional dependency |
-
----
-
-### `chunking`
-
-Controls how documents are split into chunks before indexing.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `strategy` | `"fixed"` \| `"sliding"` \| `"semantic"` \| `"recursive"` \| `"sentence_window"` | `"fixed"` | See below |
-| `chunk_size` | int (> 0) | `500` | Target chunk size in tokens (fixed/sliding/recursive) or characters (semantic) |
-| `overlap` | int (≥ 0) | `50` | Token/character overlap between consecutive chunks |
-| `semantic_model` | string \| null | `null` | HuggingFace model used for semantic splitting. **Required when `strategy: semantic`** |
-| `window_size` | int (> 0) \| null | `null` | Number of surrounding sentences stored as context alongside each sentence chunk. **Required when `strategy: sentence_window`** |
-| `parent_chunk_size` | int \| null | `null` | When set, enables parent-document retrieval: small child chunks are indexed for precise retrieval; results are replaced with their parent content before returning. Must be greater than `chunk_size` |
-| `separators` | list[string] | `["\n\n", "\n", ". ", " ", ""]` | Separator hierarchy for recursive chunking. Tried in order; falls back to hard character splitting |
-
-**Chunking strategies:**
-
-| Strategy | Description |
-|----------|-------------|
-| `fixed` | Split into chunks of exactly `chunk_size` tokens with `overlap` |
-| `sliding` | Sliding window: similar to fixed but every chunk shifts by `chunk_size − overlap` |
-| `semantic` | Group sentences by semantic similarity using `semantic_model`; `chunk_size` is the upper bound |
-| `recursive` | Try separators in order (`\n\n` → `\n` → `. ` → ` ` → character), recursing into oversized pieces. Best for structured text with paragraphs and sentences |
-| `sentence_window` | Index individual sentences as retrieval units; each sentence stores a window of `window_size` surrounding sentences in its payload. At retrieval time, the full window is returned instead of the bare sentence |
-
----
-
-### Retrieval Pipeline
-
-### `retrieval`
-
-Controls how documents are retrieved for a given query.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `strategy` | `"vector"` \| `"hybrid"` | `"vector"` | See below |
-| `top_k` | int (> 0) | `5` | Final number of documents to return (after optional reranking) |
-| `per_query_top_k` | int (> 0) \| null | `null` | Per-query candidate pool when query processing generates multiple variants. When set, each variant fetches this many results before merging; when null, `top_k` is used |
-
-**Retrieval strategies:**
-
-| Strategy | Description |
-|----------|-------------|
-| `vector` | Dense vector similarity search only |
-| `hybrid` | Combines dense vector search with sparse BM25 keyword search via Reciprocal Rank Fusion (RRF). Recommended for most use cases |
-
----
-
-### `reranking`
-
-Optional post-retrieval reranking step to improve result relevance.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enabled` | bool | `false` | Enable or disable reranking |
-| `method` | `"cross_encoder"` \| `"mmr"` \| `"llm"` \| null | `null` | Reranking algorithm. Required when `enabled: true` |
-| `model` | string \| null | `null` | HuggingFace model used for cross-encoder scoring. Required when `method: cross_encoder` |
-| `top_k` | int (> 0) \| null | `null` | Number of results to keep after reranking. When null, all retrieval results are returned |
-| `score_threshold` | float [0–1] \| null | `null` | Minimum reranking score; results below this threshold are discarded |
-
-**Reranking methods:**
-
-| Method | Description |
-|--------|-------------|
-| `cross_encoder` | Uses a cross-encoder model (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2`) to re-score query–document pairs. More accurate but slower |
-| `mmr` | Maximal Marginal Relevance: re-ranks by balancing relevance and diversity. No extra model needed |
-| `llm` | LLM-as-reranker: the LLM scores each (query, chunk) pair on a 1–10 relevance scale; results are reordered by that score. No extra model needed beyond the configured LLM |
-
-> **Security**: `ingestion.allowed_base_dir` restricts which host paths can be submitted for ingestion. Set this to the narrowest directory that covers your document sources.
-
----
-
-### `compression`
-
-Optional post-retrieval contextual compression step. Uses the LLM to extract only the query-relevant sentences from each retrieved result; results where no content is relevant are dropped entirely.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enabled` | bool | `false` | Enable or disable contextual compression |
-
-Example:
-
-```yaml
-compression:
-  enabled: true
-```
-
-> Adds one LLM call per retrieved result. Pairs well with `sentence_window` chunking to prune oversized context windows.
-
----
-
-### Query Processing Pipeline
-
-### `query_processing`
-
-Optional pre-retrieval pipeline that transforms the query into one or more alternative representations to improve recall. All processors are disabled by default. Multiple processors can be enabled simultaneously — the dispatcher fans out, merges all result sets, and deduplicates before reranking.
-
-| Processor | Config key | Description |
-|-----------|------------|-------------|
-| Query Rewriting | `rewriting` | Reformulates the query for better semantic search alignment |
-| Query Expansion | `expansion` | Adds synonyms and related terms to broaden the search surface |
-| HyDE | `hyde` | Generates a hypothetical answer passage and embeds that instead of the raw query |
-| Multi-Query | `multi_query` | Generates N rephrased variants, retrieves for each, then merges and deduplicates |
-| Query Decomposition | `decomposition` | Breaks a complex query into focused sub-questions, retrieves for each |
-| Step-Back Prompting | `step_back` | Generates a more abstract version of the query for wider recall |
-
-Per-processor config keys:
-
-| Key | Type | Default | Applies to |
-|-----|------|---------|------------|
-| `enabled` | bool | `false` | all processors |
-| `num_variants` | int (2–10) | `3` | `multi_query` only |
-| `max_subqueries` | int (2–10) | `4` | `decomposition` only |
-
-**Adaptive planner** (`query_processing.planner.enabled`): when `true`, a `QueryPlanner` makes one LLM call before the processor fan-out to select which processors are appropriate for the query. Processors the planner excludes are skipped even if individually `enabled`. Disabled by default (`false`).
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `query_processing.planner.enabled` | bool | `false` | Enable LLM-based query planner; selects active processors per query |
-
-Example — enable query rewriting:
-
-```yaml
-query_processing:
-  rewriting:
-    enabled: true
-```
-
-> Processors are composed additively: if multiple processors are enabled, each generates its own query variants; results are merged and deduplicated before retrieval.
-
----
-
-### `iterative_retrieval`
-
-Optional grounding-check loop for the `/ask` endpoint. After each generate step, the LLM evaluates whether the answer is supported by the retrieved context. If not grounded and a refined query is suggested, retrieval is retried up to `max_iterations` times. Results are accumulated and deduplicated by chunk ID across all iterations.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enabled` | bool | `false` | Enable the iterative retrieval loop. When `false`, `/ask` runs a single retrieve–generate pass as before |
-| `max_iterations` | int (1–5) | `3` | Maximum number of retrieve–generate iterations. The loop exits early once the answer is grounded |
-
-Example:
-
-```yaml
-iterative_retrieval:
-  enabled: true
-  max_iterations: 3
-```
-
-> The grounding check is an LLM call added to each iteration. On LLM errors the check falls back to `is_grounded=True`, so the loop exits rather than retrying indefinitely.
-
----
-
-### `observability`
-
-Optional Langfuse tracing for the RAG pipeline. When enabled, `search` and `ask` requests are traced end-to-end: retrieval, query processing, embedding, reranking, and generation each appear as a named span.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `enabled` | bool | `true` | Enable or disable Langfuse tracing. All `@observe` decorators are transparent no-ops when disabled |
-| `public_key` | string | `"pk-lf-local-dev"` | Langfuse project public key |
-| `secret_key` | string | `"sk-lf-local-dev"` | Langfuse project secret key |
-| `host` | string | `"http://langfuse:3000"` | Langfuse host URL. Use `http://localhost:3000` for local dev outside Docker; `https://cloud.langfuse.com` for Langfuse Cloud |
-| `flush_at` | int | `15` | Events batched before sending |
-| `flush_interval` | float | `0.5` | Maximum seconds before flushing a batch |
-
-Langfuse runs alongside the core services and starts automatically with `docker compose up`. Access the UI at `http://localhost:3000`.
-
----
-
-## RAG Techniques
-
-### Chunking strategies
-
-| Strategy | When to use |
-|----------|-------------|
-| `fixed` | Uniform documents; simplest baseline |
-| `sliding` | Overlapping windows; reduces context loss at chunk boundaries |
-| `semantic` | Variable-length chunks that respect semantic boundaries; best for dense narrative text |
-| `recursive` | Structured text with paragraphs and sentences; tries progressively finer separators and recurses into oversized pieces |
-| `sentence_window` | Granular sentence-level retrieval with surrounding context; ideal when precise localization matters but answers need broader context |
-
-**Parent-document retrieval** (`parent_chunk_size`): Index small child chunks for precise vector matching, but surface the parent chunk (broader context) in results. Set `parent_chunk_size` to an integer greater than `chunk_size`. Child chunks are stored with `parent_id` and `parent_content` in the Qdrant payload; retrieval automatically substitutes parent content before returning results. Use this when fine retrieval granularity and full-context answers are both required.
-
-**Sentence-window retrieval** (`strategy: sentence_window`): Each sentence is a separate retrieval unit in Qdrant, but carries a `window_context` payload field containing the `window_size` sentences on either side. At retrieval time, results are automatically expanded to the full window before being returned or reranked. Set `window_size` to control how much surrounding context is surfaced (e.g., `3` means 3 sentences before + 3 after). Pairs well with `llm` reranking or `compression` (contextual compression) to trim the window down to only what is relevant.
-
-### Contextual Retrieval
-
-When `contextual_retrieval.chunk_context_enabled` or `contextual_retrieval.document_summary_enabled` is `true`, the ingestion pipeline enriches each chunk with metadata fields:
-
-- **`chunk_context`** — a one-sentence description of how the chunk relates to the full document (one LLM call per chunk)
-- **`document_summary`** — a one-sentence summary of the full document (one LLM call per document, shared across all its chunks)
-
-The raw chunk text is embedded unchanged; both fields are written to the Qdrant payload and appear automatically in the `metadata` dict of search results. This improves recall for chunks that are too short or too terse to retrieve well on their own.
-
-```yaml
-contextual_retrieval:
-  chunk_context_enabled: true   # 1 LLM call per chunk
-  document_summary_enabled: true  # 1 LLM call per document
-```
-
-Contextual retrieval adds one LLM call per chunk plus one LLM call per document at ingest time. For large corpora, prefer batch ingestion (`/ingest/full`) and a fast local model.
-
-### Query processing techniques
-
-Query processing runs before retrieval to transform the incoming query into alternative representations, improving recall without changing the retrieval or reranking configuration.
-
-| Technique | Config key | What it does |
-|-----------|------------|---------------|
-| Query Rewriting | `rewriting` | Reformulates the query for better semantic alignment |
-| Query Expansion | `expansion` | Adds synonyms and related terms to broaden the search surface |
-| HyDE | `hyde` | Embeds a generated hypothetical answer passage instead of the raw query |
-| Multi-Query | `multi_query` | Generates N rephrased variants, retrieves for each, merges results |
-| Query Decomposition | `decomposition` | Splits a complex query into focused sub-questions, retrieves for each |
-| Step-Back Prompting | `step_back` | Abstracts the query to a higher level for wider recall |
-
-Multiple techniques can be active at once. The `QueryProcessorDispatcher` fans out to all enabled processors and deduplicates the combined result set before passing it to reranking.
-
-### Reranking methods
-
-| Method | When to use |
-|--------|-------------|
-| `cross_encoder` | Highest accuracy; re-scores every (query, chunk) pair with a dedicated model. Adds latency proportional to `top_k` |
-| `mmr` | Diversity-first; good when results tend to be redundant. No extra model needed |
-| `llm` | LLM-as-reranker; scores each (query, chunk) pair 1–10. Useful when no cross-encoder model is available |
-
----
-
-## REST API
-
-Base URL: `http://localhost:8000`
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Aggregate healthcheck (qdrant, ollama, embeddings) |
-| `GET` | `/collections` | List all Qdrant collections |
-| `POST` | `/ingest/sync` | Incremental document sync (only changed files) |
-| `POST` | `/ingest/full` | Full reingestion — drops and rebuilds the index |
-| `POST` | `/search` | Semantic search with optional reranking |
-| `POST` | `/ask` | RAG QA — returns answer from Ollama; `503` if Ollama unavailable |
-
----
-
-### Multi-tenant collections
-
-Each request to `/search`, `/ask`, `/ingest/sync`, and `/ingest/full` accepts an optional `"collection"` field. When supplied, it targets that Qdrant collection instead of the default in `config.yaml`. Use this to maintain independent knowledge bases per project or team.
-
-```json
-{ "query": "what is RAG?", "collection": "tech-notes" }
-```
-
-Collections are created automatically on first ingest. List existing collections with `GET /collections`.
-
-### Examples
-
-**GET /health**
-```bash
-curl http://localhost:8000/health
-# {"status": "ok", "services": {"qdrant": "ok", "ollama": "ok", "embeddings": "ok"}}
-```
-
-**GET /collections**
-```bash
-curl http://localhost:8000/collections
-# ["documents", "tech-notes"]
-```
-
-**POST /ingest/sync**
-```bash
-curl -X POST http://localhost:8000/ingest/sync \
-  -H "Content-Type: application/json" \
-  -d '{"paths": ["/data/docs/report.pdf"]}'
-# {"added": 12, "updated": 0, "skipped": 3, "errors": []}
-```
-
-**POST /search**
-```bash
-curl -X POST http://localhost:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "what is RAG", "top_k": 3}'
-```
-
-Response shape (`SearchResultItem`):
-```json
-{
-  "content": "RAG combines retrieval with generation...",
-  "score": 0.91,
-  "source": "/data/docs/report.pdf",
-  "metadata": {
-    "char_start": 1240,
-    "char_end": 1680,
-    "page_number": 3
-  }
-}
-```
-
-`char_start` / `char_end` are character offsets into the original document text. `page_number` is 1-indexed and populated for PDF sources; `null` for other formats.
-
-**POST /ask**
-```bash
-curl -X POST http://localhost:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "What are the benefits of hybrid retrieval?"}'
-```
-
-Response shape (`AskResponse`):
-```json
-{
-  "answer": "Hybrid retrieval combines dense and sparse signals...",
-  "sources": [
-    {
-      "source": "/data/docs/report.pdf",
-      "score": 0.91,
-      "chunk_index": 4,
-      "page_number": 3,
-      "char_start": 1240,
-      "char_end": 1680
-    }
-  ]
-}
-```
-
-`page_number`, `char_start`, and `char_end` are `null` when not available (non-PDF sources or legacy indexed chunks).
-```
-
----
-
-## MCP Server
-
-The MCP server exposes 5 tools over stdio transport for use with LLM agents (e.g., Claude Desktop):
-
-| Tool | Description |
-|---|---|
-| `search_documents` | Semantic search across a collection |
-| `ask_rag` | RAG question answering via Ollama |
-| `ingest_sync` | Trigger incremental document sync |
-| `ingest_full` | Trigger full reingestion |
-| `list_collections` | List available Qdrant collections |
-
-To run the MCP server directly (outside Docker):
+Or, to install the CLI to your PATH first:
 
 ```bash
-mindlm-mcp
+bash mindlm.sh install   # installs to ~/.local/bin
+mindlm start
 ```
 
-### Claude Desktop integration
+### 2. Ingest documents
 
-Add to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows):
+Documents are mounted at `/data` inside the containers (see `docker-compose.yml`):
 
-**Via Docker (recommended — services must be running):**
-```json
-{
-  "mcpServers": {
-    "mindlm": {
-      "command": "docker",
-      "args": ["exec", "-i", "mindlm-mcp-1", "mindlm-mcp"]
-    }
-  }
-}
+```bash
+mindlm ingest /data
 ```
 
-**Via local install:**
-```json
-{
-  "mcpServers": {
-    "mindlm": {
-      "command": "uv",
-      "args": ["run", "mindlm-mcp"],
-      "env": { "CONFIG_PATH": "/absolute/path/to/configs/config.yaml" }
-    }
-  }
-}
-```
+### 3. Ask questions
 
-Restart Claude Desktop after editing the config.
-
----
-
-## Scripts
-
-| Command | Description |
-|---|---|
-| `mindlm-api` | Start the FastAPI REST server |
-| `mindlm-mcp` | Start the MCP server (stdio transport) |
-
-These are registered as entry points and available after `uv sync`.
-
----
-
-## Project Structure
-
-```
-src/mindlm/
-├── core/           # Domain models, config, embeddings, parsing, chunking,
-│                   # vectorstore, retrieval, reranking, generation,
-│                   # ingestion, synchronization
-├── api/            # FastAPI REST server (routers: health, collections, ingest, search)
-└── mcp/            # MCP server (5 tools, stdio transport)
-configs/            # config.example.yaml — copy to config.yaml
-docker/             # Dockerfiles for api and mcp services
-tests/              # Test suite (mirrors src/ structure)
+```bash
+mindlm ask "What are the key ideas in these documents?"
 ```
 
 ---
 
-## CLI (`mindlm.sh`)
+## 📦 Configuration
 
-A bash script to manage the platform from any directory.
+All behavior is controlled via `configs/config.yaml`.
 
-> **Windows users:** `mindlm.sh` is a Unix Bash script. On native Windows CMD/PowerShell, use Docker Compose directly: `docker compose up`, `docker compose down`. All `docker compose` commands in this README work on Windows as-is.
+Key sections:
 
-### Install
-
-```bash
-./mindlm.sh install
-source ~/.bashrc   # or open a new shell
-```
-
-This creates a symlink at `~/.local/bin/mindlm` and adds it to your `PATH`.
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `mindlm start` | Start all services and wait for the API to become healthy |
-| `mindlm stop` | Stop all services |
-| `mindlm build` | Build Docker images |
-| `mindlm status` | Show container status |
-| `mindlm health` | Print API health JSON |
-| `mindlm collections` | List all Qdrant collections |
-| `mindlm search "<query>"` | Search the knowledge base |
-| `mindlm ask "<question>"` | Ask a question (RAG) |
-| `mindlm ingest <path>...` | Incremental document sync |
-| `mindlm ingest-full <path>...` | Full document re-index |
-| `mindlm config-wizard` | Launch the interactive configuration wizard |
-| `mindlm uninstall` | Remove the `~/.local/bin/mindlm` symlink |
-
-### Options
-
-`search` accepts:
-- `--top-k N` — number of results (default: `5`)
-- `--collection NAME` — restrict to a specific collection
-
-`ask` accepts:
-- `--collection NAME` — restrict to a specific collection
-
-### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MINDLM_API_BASE` | `http://localhost:8000` | Override the API base URL |
-| `NO_COLOR` | unset | Set to any value to disable colored output |
-
-> Output is pretty-printed with `jq` when available; falls back to raw JSON.
+* llm
+* embeddings
+* vector_store
+* ingestion
+* chunking
+* contextual_retrieval
+* retrieval
+* reranking
+* compression
+* query_processing
+* iterative_retrieval
+* observability
 
 ---
 
-## Development
+## 🧭 Documentation
 
-```bash
-# Quality
-make test       # Run tests
-make coverage   # Tests with coverage report (opens htmlcov/)
-make lint       # Run all quality checks (ruff + mypy)
-make format     # Format and auto-fix code
-make tox        # Run tests across Python 3.11, 3.12, 3.13
-
-# Releases
-make commit     # Interactive commit with conventional commits
-make bump       # Create a new release (bumps version + updates CHANGELOG)
-make docs       # Generate API documentation
-make build      # Build distributable package
-make clean      # Remove Python build artifacts and caches
-
-# Docker
-make docker-build   # Build Docker images
-make docker-start   # Start all services (docker compose up -d)
-make docker-stop    # Stop all services (docker compose down)
-make docker-logs    # Follow service logs
-make docker-clean   # Remove containers + volumes (destructive)
-```
-
-To install dependencies for local development:
-
-```bash
-uv sync
-```
-
-### Pre-commit hooks
-
-Install hooks (one-time, after `uv sync`):
-
-```bash
-uv run pre-commit install
-```
-
-Hooks that run automatically on `git commit`:
-
-| Hook | What it does |
-|------|-------------|
-| `ruff` + `ruff-format` | Lints and formats Python code |
-| `mypy` | Type-checks the package |
-| `commitizen` | Enforces conventional commit message format |
-| `trailing-whitespace`, `end-of-file-fixer` | Basic file hygiene |
-| `check-yaml` / `check-toml` / `check-json` | Validates config syntax |
-
-Run all hooks manually:
-
-```bash
-uv run pre-commit run --all-files
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines.
+* [Architecture](docs/architecture.md)
+* [Retrieval Techniques](docs/retrieval-techniques.md)
+* [Configuration Reference](docs/configuration.md)
+* [Deployment Guide](docs/deployment.md)
 
 ---
 
-## License
+## 🧪 Philosophy
 
-[MIT](LICENSE)
+MindLM is designed to:
+
+* Keep everything local-first
+* Make retrieval pipelines modular
+* Allow full control over RAG behavior
+* Expose advanced techniques without hidden complexity
+
+---
+
+## 📌 License
+
+See LICENSE file for details.
