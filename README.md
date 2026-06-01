@@ -136,4 +136,4 @@ MindLM is designed to:
 
 ## 📌 License
 
-See LICENSE file for details.
+See [LICENSE](LICENSE) file for details.
