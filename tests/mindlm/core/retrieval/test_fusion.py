@@ -70,7 +70,7 @@ class TestRRFMerge:
 class TestFusionEngine:
     def test_single_query_no_processor(self) -> None:
         engine = _make_engine(retriever_results=[_result("a")])
-        results = engine.fuse("query", None, top_k=5)
+        results = engine.fuse("query", None, fused_top_k=5, per_query_top_k=5)
         assert any(r.id == "a" for r in results)
         cast("MagicMock", engine._retriever.retrieve).assert_called_once_with(
             "query", None, top_k=5
@@ -81,7 +81,7 @@ class TestFusionEngine:
             retriever_results=[_result("a")],
             query_variants=["q1", "q2", "q3"],
         )
-        engine.fuse("original", None, top_k=5)
+        engine.fuse("original", None, fused_top_k=5, per_query_top_k=5)
         assert cast("MagicMock", engine._retriever.retrieve).call_count == 3
 
     def test_rrf_merge_applied(self) -> None:
@@ -95,7 +95,7 @@ class TestFusionEngine:
         qp = MagicMock()
         qp.process.return_value = ["q1", "q2"]
         engine = FusionEngine(retriever, query_processor=qp, llm=llm)
-        results = engine.fuse("original", None, top_k=5)
+        results = engine.fuse("original", None, fused_top_k=5, per_query_top_k=5)
         # Both a and b should appear; scores should be RRF-based (not original 0.9/0.8)
         assert len(results) == 2
         for r in results:
@@ -105,12 +105,27 @@ class TestFusionEngine:
         retriever = MagicMock()
         retriever.retrieve.return_value = [_result(str(i)) for i in range(10)]
         engine = FusionEngine(retriever)
-        results = engine.fuse("query", None, top_k=3)
+        results = engine.fuse("query", None, fused_top_k=3, per_query_top_k=10)
         assert len(results) == 3
+
+    def test_per_query_top_k_is_used_for_each_retrieve(self) -> None:
+        retriever = MagicMock()
+        retriever.retrieve.return_value = [_result("a")]
+        llm = MagicMock()
+        qp = MagicMock()
+        qp.process.return_value = ["q1", "q2"]
+        engine = FusionEngine(retriever, query_processor=qp, llm=llm)
+
+        engine.fuse("original", None, fused_top_k=5, per_query_top_k=20)
+
+        calls = cast("MagicMock", engine._retriever.retrieve).call_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs["top_k"] == 20
+        assert calls[1].kwargs["top_k"] == 20
 
     def test_all_queries_return_empty(self) -> None:
         engine = _make_engine(retriever_results=[])
-        assert engine.fuse("query", None, top_k=5) == []
+        assert engine.fuse("query", None, fused_top_k=5, per_query_top_k=5) == []
 
     def test_raises_when_processor_given_without_llm(self) -> None:
         retriever = MagicMock()

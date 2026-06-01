@@ -71,13 +71,15 @@ class ChunkingConfig(BaseModel):
 class RetrievalConfig(BaseModel):
     strategy: Literal["vector", "hybrid"] = "vector"
     top_k: int = Field(default=5, gt=0)
-    score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    per_query_top_k: int | None = Field(default=None, gt=0)
 
 
 class RerankingConfig(BaseModel):
     enabled: bool = False
     method: Literal["cross_encoder", "mmr", "llm"] | None = None
     model: str | None = None
+    top_k: int | None = Field(default=None, gt=0)
+    score_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _check_config(self) -> "RerankingConfig":

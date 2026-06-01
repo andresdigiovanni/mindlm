@@ -10,6 +10,8 @@ from mindlm.core.config.models import (
     QueryPlannerConfig,
     QueryProcessingConfig,
     RAGConfig,
+    RerankingConfig,
+    RetrievalConfig,
 )
 
 
@@ -233,3 +235,22 @@ class TestQueryPlannerConfig:
         self,
     ) -> None:
         assert QueryProcessingConfig().planner.enabled is False
+
+
+class TestRetrievalAndRerankingConfig:
+    def test_should_allow_per_query_top_k_when_positive(self) -> None:
+        cfg = RetrievalConfig(top_k=10, per_query_top_k=25)
+
+        assert cfg.top_k == 10
+        assert cfg.per_query_top_k == 25
+
+    def test_should_allow_reranking_top_k_and_threshold(self) -> None:
+        cfg = RerankingConfig(
+            enabled=True,
+            method="cross_encoder",
+            top_k=20,
+            score_threshold=0.15,
+        )
+
+        assert cfg.top_k == 20
+        assert cfg.score_threshold == 0.15

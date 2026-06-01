@@ -1,11 +1,5 @@
-# ============================================================
-# Profile: full
-# Best for: maximum retrieval quality — higher resource requirements
-# Note: semantic chunking downloads the embedding model on first run.
-#       All query processors are enabled and run in parallel.
-# ============================================================
-
-# ── Infrastructure ──────────────────────────────────────────
+# Main runtime configuration for MindLM.
+# Mounted in containers as /config/config.yaml.
 
 llm:
   provider: ollama
@@ -39,23 +33,9 @@ chunking:
   strategy: semantic
   chunk_size: 500
   overlap: 50
-  semantic_model: BAAI/bge-large-en-v1.5  # must match embeddings.model
-  parent_chunk_size: 1500  # optional: enable parent-document retrieval
+  semantic_model: BAAI/bge-large-en-v1.5
+  parent_chunk_size: 1500
   # window_size: 2  # used only when strategy: sentence_window
-
-# ── Retrieval Pipeline ──────────────────────────────────────
-
-retrieval:
-  strategy: hybrid
-  top_k: 10
-  score_threshold: 0.1  # optional: drop results below this similarity score (use low values with cross_encoder reranking)
-
-reranking:
-  enabled: true
-  method: cross_encoder
-  model: BAAI/bge-reranker-v2-m3
-  # method: llm          # LLM-based 1-10 scoring (requires llm config)
-  # method: compression  # Contextual compression - extracts relevant parts only
 
 # ── Contextual Retrieval (opt-in) ───────────────────────────
 # Stores LLM-generated metadata at ingest time. Raw chunk text is always embedded
@@ -65,6 +45,23 @@ reranking:
 contextual_retrieval:
   chunk_context_enabled: false
   document_summary_enabled: true
+
+# ── Retrieval Pipeline ──────────────────────────────────────
+
+retrieval:
+  strategy: hybrid
+  per_query_top_k: 20
+  top_k: 40
+
+reranking:
+  enabled: true
+  method: cross_encoder
+  model: BAAI/bge-reranker-v2-m3
+  top_k: 10
+  score_threshold: 0.1
+
+compression:
+  enabled: false
 
 # ── Query Processing Pipeline ───────────────────────────────
 # All processors enabled — each generates additional query variants
@@ -86,7 +83,7 @@ query_processing:
   step_back:
     enabled: true
   planner:            # adaptive LLM planner: selects which processors to run per query
-    enabled: true     # when true, LLM classifies each query and picks the optimal processor subset
+    enabled: true     # when true, LLM classifies each query and picks the optimal subset
 
 # ── Iterative / Agentic Retrieval (opt-in) ──────────────────
 # Enables a grounding-check loop after each generate step.
@@ -100,6 +97,7 @@ iterative_retrieval:
 # ── Observability ────────────────────────────────────────────
 
 observability:
+  enabled: true
   public_key: pk-lf-local-dev
   secret_key: sk-lf-local-dev
   host: http://langfuse:3000   # use http://localhost:3000 outside Docker

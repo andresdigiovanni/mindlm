@@ -38,12 +38,10 @@ git clone https://github.com/username/mindlm.git
 cd mindlm
 
 # 2. Configure the platform
-cp configs/config.example.yaml configs/config.yaml
 # Edit configs/config.yaml to set your models, paths, and preferences
 
 # 3. Add your documents
-mkdir data
-# Copy documents into data/ — this folder is mounted as /data inside the containers.
+# Copy documents into a local directory mounted as /data inside the containers.
 # To use a different path, update the volume in docker-compose.yml and
 # set ingestion.allowed_base_dir in config.yaml accordingly.
 
@@ -56,66 +54,26 @@ Services started:
 - **mcp** — MCP server (stdio)
 - **qdrant** — vector store at `http://localhost:6333` · dashboard at `http://localhost:6333/dashboard`
 - **ollama** — LLM runtime at `http://localhost:11434`
-
-To also start self-hosted Langfuse observability:
-
-```bash
-docker compose --profile langfuse up
-```
-
-Langfuse UI: `http://localhost:3000` (default credentials: `admin@example.com` / `changeme` — change before production).
+- **langfuse** — observability UI at `http://localhost:3000` (default credentials: `admin@example.com` / `changeme` — change before production)
 
 ---
 
 ## Configuration
 
-Copy `configs/config.example.yaml` to `configs/config.yaml` and adjust. The file is mounted as a volume into all containers — no rebuild is required after changes.
+Edit `configs/config.yaml` to adjust. The file is mounted as a volume into all containers — no rebuild is required after changes.
 
 ### Quick Start
 
-**Option A — Interactive wizard** (recommended):
+**Interactive wizard** (recommended):
 ```bash
 ./config-wizard.sh
 # or via mindlm.sh:
 bash mindlm.sh config-wizard
 ```
 
-**Option B — Use a profile preset**:
-```bash
-cp configs/profiles/balanced.yaml configs/config.yaml   # recommended default
-# cp configs/profiles/minimal.yaml configs/config.yaml  # lightweight alternative
-# cp configs/profiles/full.yaml configs/config.yaml     # maximum quality
-```
-
-**Option C — Manual copy**:
-```bash
-cp configs/config.example.yaml configs/config.yaml
-# Edit configs/config.yaml to set your models, paths, and preferences
-```
-
-### Profiles
-
-| Profile | Use Case | Chunking | Embedding Model | Retrieval | Reranking | Query Processors |
-|---------|----------|----------|-----------------|-----------|-----------|------------------|
-| `minimal` | Quick trials, low resource | fixed/512 | all-MiniLM-L6-v2 (384d) | vector, top 5 | disabled | none |
-| `balanced` | Most production use cases | recursive/500 | bge-small-en-v1.5 (384d) | vector, top 10 | cross-encoder | rewriting |
-| `full` | Maximum quality | semantic/500 | bge-large-en-v1.5 (1024d) | hybrid, top 10 | cross-encoder | all |
-
-See [`configs/profiles/`](configs/profiles/) for ready-to-use YAML files.
-
 ---
 
 ### Infrastructure
-
-### `app`
-
-General platform settings.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `name` | string | `"local-rag"` | Display name used in logs |
-
----
 
 ### `llm`
 
@@ -224,7 +182,8 @@ Controls how documents are retrieved for a given query.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `strategy` | `"vector"` \| `"hybrid"` | `"vector"` | See below |
-| `top_k` | int (> 0) | `5` | Number of documents to return before optional reranking |
+| `top_k` | int (> 0) | `5` | Final number of documents to return (after optional reranking) |
+| `per_query_top_k` | int (> 0) \| null | `null` | Per-query candidate pool when query processing generates multiple variants. When set, each variant fetches this many results before merging; when null, `top_k` is used |
 
 **Retrieval strategies:**
 
@@ -242,8 +201,10 @@ Optional post-retrieval reranking step to improve result relevance.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | bool | `false` | Enable or disable reranking |
-| `method` | `"cross_encoder"` \| `"mmr"` \| `"llm"` \| `"compression"` \| null | `null` | Reranking algorithm. Required when `enabled: true` |
+| `method` | `"cross_encoder"` \| `"mmr"` \| `"llm"` \| null | `null` | Reranking algorithm. Required when `enabled: true` |
 | `model` | string \| null | `null` | HuggingFace model used for cross-encoder scoring. Required when `method: cross_encoder` |
+| `top_k` | int (> 0) \| null | `null` | Number of results to keep after reranking. When null, all retrieval results are returned |
+| `score_threshold` | float [0–1] \| null | `null` | Minimum reranking score; results below this threshold are discarded |
 
 **Reranking methods:**
 
@@ -252,9 +213,27 @@ Optional post-retrieval reranking step to improve result relevance.
 | `cross_encoder` | Uses a cross-encoder model (e.g., `cross-encoder/ms-marco-MiniLM-L-6-v2`) to re-score query–document pairs. More accurate but slower |
 | `mmr` | Maximal Marginal Relevance: re-ranks by balancing relevance and diversity. No extra model needed |
 | `llm` | LLM-as-reranker: the LLM scores each (query, chunk) pair on a 1–10 relevance scale; results are reordered by that score. No extra model needed beyond the configured LLM |
-| `compression` | Contextual compression: the LLM extracts only the query-relevant sentences from each chunk; chunks with no relevant content are dropped entirely |
 
 > **Security**: `ingestion.allowed_base_dir` restricts which host paths can be submitted for ingestion. Set this to the narrowest directory that covers your document sources.
+
+---
+
+### `compression`
+
+Optional post-retrieval contextual compression step. Uses the LLM to extract only the query-relevant sentences from each retrieved result; results where no content is relevant are dropped entirely.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable or disable contextual compression |
+
+Example:
+
+```yaml
+compression:
+  enabled: true
+```
+
+> Adds one LLM call per retrieved result. Pairs well with `sentence_window` chunking to prune oversized context windows.
 
 ---
 
@@ -326,14 +305,14 @@ Optional Langfuse tracing for the RAG pipeline. When enabled, `search` and `ask`
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | bool | `false` | Enable or disable Langfuse tracing. All `@observe` decorators are transparent no-ops when disabled |
+| `enabled` | bool | `true` | Enable or disable Langfuse tracing. All `@observe` decorators are transparent no-ops when disabled |
 | `public_key` | string | `"pk-lf-local-dev"` | Langfuse project public key |
 | `secret_key` | string | `"sk-lf-local-dev"` | Langfuse project secret key |
 | `host` | string | `"http://langfuse:3000"` | Langfuse host URL. Use `http://localhost:3000` for local dev outside Docker; `https://cloud.langfuse.com` for Langfuse Cloud |
 | `flush_at` | int | `15` | Events batched before sending |
 | `flush_interval` | float | `0.5` | Maximum seconds before flushing a batch |
 
-Self-hosted Langfuse runs as an optional Docker Compose profile — see [Quick Start](#quick-start) for the command.
+Langfuse runs alongside the core services and starts automatically with `docker compose up`. Access the UI at `http://localhost:3000`.
 
 ---
 
@@ -351,11 +330,11 @@ Self-hosted Langfuse runs as an optional Docker Compose profile — see [Quick S
 
 **Parent-document retrieval** (`parent_chunk_size`): Index small child chunks for precise vector matching, but surface the parent chunk (broader context) in results. Set `parent_chunk_size` to an integer greater than `chunk_size`. Child chunks are stored with `parent_id` and `parent_content` in the Qdrant payload; retrieval automatically substitutes parent content before returning results. Use this when fine retrieval granularity and full-context answers are both required.
 
-**Sentence-window retrieval** (`strategy: sentence_window`): Each sentence is a separate retrieval unit in Qdrant, but carries a `window_context` payload field containing the `window_size` sentences on either side. At retrieval time, results are automatically expanded to the full window before being returned or reranked. Set `window_size` to control how much surrounding context is surfaced (e.g., `3` means 3 sentences before + 3 after). Pairs well with `llm` or `compression` reranking to trim the window down to only what is relevant.
+**Sentence-window retrieval** (`strategy: sentence_window`): Each sentence is a separate retrieval unit in Qdrant, but carries a `window_context` payload field containing the `window_size` sentences on either side. At retrieval time, results are automatically expanded to the full window before being returned or reranked. Set `window_size` to control how much surrounding context is surfaced (e.g., `3` means 3 sentences before + 3 after). Pairs well with `llm` reranking or `compression` (contextual compression) to trim the window down to only what is relevant.
 
 ### Contextual Retrieval
 
-When `contextual_retrieval.enabled: true`, the ingestion pipeline enriches each chunk with two metadata fields:
+When `contextual_retrieval.chunk_context_enabled` or `contextual_retrieval.document_summary_enabled` is `true`, the ingestion pipeline enriches each chunk with metadata fields:
 
 - **`chunk_context`** — a one-sentence description of how the chunk relates to the full document (one LLM call per chunk)
 - **`document_summary`** — a one-sentence summary of the full document (one LLM call per document, shared across all its chunks)
@@ -364,7 +343,8 @@ The raw chunk text is embedded unchanged; both fields are written to the Qdrant 
 
 ```yaml
 contextual_retrieval:
-  enabled: true
+  chunk_context_enabled: true   # 1 LLM call per chunk
+  document_summary_enabled: true  # 1 LLM call per document
 ```
 
 Contextual retrieval adds one LLM call per chunk plus one LLM call per document at ingest time. For large corpora, prefer batch ingestion (`/ingest/full`) and a fast local model.
@@ -391,7 +371,6 @@ Multiple techniques can be active at once. The `QueryProcessorDispatcher` fans o
 | `cross_encoder` | Highest accuracy; re-scores every (query, chunk) pair with a dedicated model. Adds latency proportional to `top_k` |
 | `mmr` | Diversity-first; good when results tend to be redundant. No extra model needed |
 | `llm` | LLM-as-reranker; scores each (query, chunk) pair 1–10. Useful when no cross-encoder model is available |
-| `compression` | Contextual compression; the LLM rewrites each chunk to keep only query-relevant content, then drops empty results. Best combined with `sentence_window` chunking to prune oversized windows |
 
 ---
 
@@ -593,6 +572,7 @@ This creates a symlink at `~/.local/bin/mindlm` and adds it to your `PATH`.
 |---------|-------------|
 | `mindlm start` | Start all services and wait for the API to become healthy |
 | `mindlm stop` | Stop all services |
+| `mindlm build` | Build Docker images |
 | `mindlm status` | Show container status |
 | `mindlm health` | Print API health JSON |
 | `mindlm collections` | List all Qdrant collections |
@@ -600,6 +580,7 @@ This creates a symlink at `~/.local/bin/mindlm` and adds it to your `PATH`.
 | `mindlm ask "<question>"` | Ask a question (RAG) |
 | `mindlm ingest <path>...` | Incremental document sync |
 | `mindlm ingest-full <path>...` | Full document re-index |
+| `mindlm config-wizard` | Launch the interactive configuration wizard |
 | `mindlm uninstall` | Remove the `~/.local/bin/mindlm` symlink |
 
 ### Options

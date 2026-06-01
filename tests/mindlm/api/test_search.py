@@ -52,13 +52,17 @@ def _result(
 
 def _mock_config(score_threshold: float | None = None) -> MagicMock:
     cfg = MagicMock()
-    cfg.retrieval.score_threshold = score_threshold
+    cfg.reranking.score_threshold = score_threshold
+    cfg.reranking.top_k = None
+    cfg.reranking.enabled = True
     return cfg
 
 
 def _mock_iterative_config(max_iterations: int = 3) -> MagicMock:
     cfg = MagicMock()
-    cfg.retrieval.score_threshold = None
+    cfg.reranking.score_threshold = None
+    cfg.reranking.top_k = None
+    cfg.reranking.enabled = True
     cfg.iterative_retrieval.max_iterations = max_iterations
     return cfg
 
@@ -154,7 +158,7 @@ class TestSearchEndpoint:
         )
         app.dependency_overrides[deps.get_compressor] = lambda: mock_compressor
         app.dependency_overrides[deps.get_config] = lambda: MagicMock(
-            retrieval=MagicMock(score_threshold=None)
+            reranking=MagicMock(score_threshold=None, top_k=None, enabled=True),
         )
         client = TestClient(app)
         response = client.post("/search", json={"query": "test query"})
@@ -195,7 +199,7 @@ class TestSearchEndpoint:
         )
         app.dependency_overrides[deps.get_compressor] = lambda: mock_compressor
         app.dependency_overrides[deps.get_config] = lambda: MagicMock(
-            retrieval=MagicMock(score_threshold=None)
+            reranking=MagicMock(score_threshold=None, top_k=None, enabled=True),
         )
         app.dependency_overrides[deps.get_llm_provider] = lambda: MagicMock(
             chat=MagicMock(return_value="answer")
@@ -540,7 +544,9 @@ class TestAskIterativeRetrieval:
             is_grounded=False, refined_query="refine again"
         )
         mock_config = MagicMock()
-        mock_config.retrieval.score_threshold = None
+        mock_config.reranking.score_threshold = None
+        mock_config.reranking.top_k = None
+        mock_config.reranking.enabled = True
         mock_config.iterative_retrieval.max_iterations = 2
         app.dependency_overrides[deps.get_retriever] = lambda: mock_retriever
         app.dependency_overrides[deps.get_reranker] = lambda: mock_reranker

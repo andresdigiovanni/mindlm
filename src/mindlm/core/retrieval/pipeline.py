@@ -42,14 +42,25 @@ class RetrievalPipeline:
         Returns:
             Final list of results after all pipeline stages.
         """
-        effective_top_k = top_k if top_k is not None else self._config.top_k
+        effective_fused_top_k = top_k if top_k is not None else self._config.top_k
+        effective_per_query_top_k = (
+            self._config.per_query_top_k
+            if self._config.per_query_top_k is not None
+            else effective_fused_top_k
+        )
         langfuse_context.update_current_observation(
             input=query,
             metadata={
                 "strategy": self._config.strategy,
-                "top_k": effective_top_k,
+                "fused_top_k": effective_fused_top_k,
+                "per_query_top_k": effective_per_query_top_k,
             },
         )
-        results = self._fusion.fuse(query, filters, effective_top_k)
+        results = self._fusion.fuse(
+            query,
+            filters,
+            effective_fused_top_k,
+            per_query_top_k=effective_per_query_top_k,
+        )
         results = self._context_resolver.resolve(results)
         return results

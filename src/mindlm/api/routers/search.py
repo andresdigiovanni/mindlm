@@ -68,6 +68,15 @@ def _merge_results(
     return merged
 
 
+def _effective_score_threshold(
+    request_threshold: float | None,
+    config: RAGConfig,
+) -> float | None:
+    if request_threshold is not None:
+        return request_threshold
+    return config.reranking.score_threshold
+
+
 router = APIRouter()
 
 
@@ -86,13 +95,11 @@ async def search(
         top_k=request.top_k,
     )
     results = reranker.rerank(request.query, results)
+    if config.reranking.enabled and config.reranking.top_k is not None:
+        results = results[: config.reranking.top_k]
     if compressor is not None:
         results = compressor.compress(request.query, results)
-    threshold = (
-        request.score_threshold
-        if request.score_threshold is not None
-        else config.retrieval.score_threshold
-    )
+    threshold = _effective_score_threshold(request.score_threshold, config)
     if threshold is not None:
         results = [r for r in results if r.score >= threshold]
     items = [
@@ -139,13 +146,11 @@ async def ask(
             top_k=request.top_k,
         )
         results = reranker.rerank(query, results)
+        if config.reranking.enabled and config.reranking.top_k is not None:
+            results = results[: config.reranking.top_k]
         if compressor is not None:
             results = compressor.compress(query, results)
-        threshold = (
-            request.score_threshold
-            if request.score_threshold is not None
-            else config.retrieval.score_threshold
-        )
+        threshold = _effective_score_threshold(request.score_threshold, config)
         if threshold is not None:
             results = [r for r in results if r.score >= threshold]
 
